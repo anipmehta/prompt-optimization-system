@@ -24,4 +24,4 @@ clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage dist build *.egg-info
 	find . -type d -name __pycache__ -exec rm -rf {} +
 
-all: lint typecheck test
+all: lint typecheck coverage
