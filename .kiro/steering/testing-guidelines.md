@@ -6,8 +6,11 @@ inclusion: auto
 
 ## Branching
 - All changes go out in a separate branch, never commit directly to main.
+- Create a new branch for every task execution. Pull main before branching.
 
-## Testing
+## Quality Checks
+- Before committing, always run `make all` (lint + typecheck + coverage).
+- Coverage threshold is 90%. Do not push code below that.
 - Write unit tests only. Integration tests are done separately.
 - Every new line of production code must have corresponding unit test coverage.
 - Follow DRY in test code — share fixtures, helpers, and setup logic. Don't duplicate.
