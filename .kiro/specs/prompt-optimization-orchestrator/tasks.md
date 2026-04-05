@@ -62,12 +62,12 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
 
   - [ ] 4.2 Implement candidate selection step with retry and integrity check
     - Pass candidates to Selector
-    - Verify chosen candidate exists in original candidate set; mark FAILED with data integrity error if not
+    - Verify selected candidate exists in original candidate set; mark FAILED with data integrity error if not
     - Retry on failure up to `retry_limit`
     - _Requirements: 3.1, 3.2, 3.3, 3.4_
 
   - [ ] 4.3 Implement evaluation step with retry and score validation
-    - Send chosen candidate and `task_description` to Evaluator
+    - Send selected candidate and `task_description` to Evaluator
     - Validate score is a finite number; mark FAILED with validation error if not
     - Retry on failure up to `retry_limit`
     - _Requirements: 4.1, 4.2, 4.3, 4.4_

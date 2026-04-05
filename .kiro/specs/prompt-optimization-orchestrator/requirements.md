@@ -33,9 +33,9 @@ The Orchestrator manages the lifecycle of prompt optimization runs, coordinating
 
 1. WHEN a prompt engineer provides a Task_Description and an Optimization_Config, THE Orchestrator SHALL create a new Optimization_Run and return a unique run identifier.
 2. WHEN an Optimization_Run is created, THE Orchestrator SHALL validate that the Task_Description is a non-empty string.
-3. WHEN an Optimization_Run is created, THE Orchestrator SHALL validate that the Optimization_Config contains a positive integer for the number of candidates and a positive integer for the number of iterations.
+3. WHEN an Optimization_Run is created, THE Orchestrator SHALL validate that the Optimization_Config contains a positive integer for the number of candidates, a positive integer for the number of iterations, and a non-negative integer for the retry limit.
 4. IF the Task_Description is empty, THEN THE Orchestrator SHALL return a descriptive error indicating the Task_Description is required.
-5. IF the Optimization_Config contains invalid values, THEN THE Orchestrator SHALL return a descriptive error listing each invalid field.
+5. IF the Optimization_Config contains invalid values (including a negative retry limit), THEN THE Orchestrator SHALL return a descriptive error listing each invalid field.
 
 ### Requirement 2: Generate Prompt Candidates
 
@@ -56,7 +56,7 @@ The Orchestrator manages the lifecycle of prompt optimization runs, coordinating
 #### Acceptance Criteria
 
 1. WHEN the Orchestrator has a set of Prompt_Candidates for an Iteration, THE Orchestrator SHALL send the full candidate set to the Selector.
-2. WHEN the Selector returns a chosen Prompt_Candidate, THE Orchestrator SHALL verify that the chosen candidate exists in the original candidate set.
+2. WHEN the Selector returns a selected Prompt_Candidate, THE Orchestrator SHALL verify that the selected candidate exists in the original candidate set.
 3. IF the Selector returns a candidate not present in the original set, THEN THE Orchestrator SHALL mark the Iteration as failed and record a data integrity error.
 4. IF the Selector fails or times out, THEN THE Orchestrator SHALL retry the call up to the retry limit specified in the Optimization_Config before marking the Iteration as failed.
 
@@ -66,7 +66,7 @@ The Orchestrator manages the lifecycle of prompt optimization runs, coordinating
 
 #### Acceptance Criteria
 
-1. WHEN the Selector has chosen a Prompt_Candidate, THE Orchestrator SHALL send the chosen candidate and the original Task_Description to the Evaluator.
+1. WHEN the Selector has selected a Prompt_Candidate, THE Orchestrator SHALL send the selected candidate and the original Task_Description to the Evaluator.
 2. WHEN the Evaluator returns an Evaluation_Score, THE Orchestrator SHALL validate that the score is a finite number.
 3. IF the Evaluator returns a non-numeric or non-finite score, THEN THE Orchestrator SHALL mark the Iteration as failed and record a validation error.
 4. IF the Evaluator fails or times out, THEN THE Orchestrator SHALL retry the call up to the retry limit specified in the Optimization_Config before marking the Iteration as failed.
@@ -100,7 +100,7 @@ The Orchestrator manages the lifecycle of prompt optimization runs, coordinating
 #### Acceptance Criteria
 
 1. WHEN an Optimization_Run completes, THE Orchestrator SHALL return the Prompt_Candidate with the highest Evaluation_Score as the recommended prompt.
-2. WHEN an Optimization_Run completes, THE Orchestrator SHALL return a list of all Iteration results including the chosen candidate and score for each Iteration.
+2. WHEN an Optimization_Run completes, THE Orchestrator SHALL return a list of all Iteration results including the selected candidate and score for each Iteration.
 3. WHEN a prompt engineer queries an Optimization_Run by its run identifier, THE Orchestrator SHALL return the current status and any available results.
 4. IF multiple Prompt_Candidates share the highest Evaluation_Score, THEN THE Orchestrator SHALL return the candidate from the latest Iteration.
 
