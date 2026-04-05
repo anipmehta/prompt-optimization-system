@@ -24,8 +24,8 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Create `interfaces.py` with `GeneratorInterface`, `SelectorInterface`, `EvaluatorInterface` Protocol classes
     - _Requirements: 8.1, 8.2, 8.3_
 
-- [ ] 2. Implement validation and run initialization
-  - [ ] 2.1 Implement input validation functions
+- [-] 2. Implement validation and run initialization
+  - [x] 2.1 Implement input validation functions
     - Validate `task_description` is non-empty after stripping whitespace
     - Validate `OptimizationConfig` fields: `num_candidates > 0`, `num_iterations > 0`, `retry_limit >= 0`
     - Return descriptive errors listing each invalid field
@@ -39,7 +39,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 3: Invalid config values are rejected**
     - **Validates: Requirements 1.3, 1.5**
 
-  - [ ] 2.4 Implement `start_run` method on Orchestrator
+  - [-] 2.4 Implement `start_run` method on Orchestrator
     - Create `orchestrator.py` with `Orchestrator` class
     - Accept Generator, Selector, Evaluator via constructor (dependency injection)
     - `start_run` validates inputs, creates `OptimizationRun` with unique `run_id`, stores it, returns `run_id`
