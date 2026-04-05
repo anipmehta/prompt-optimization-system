@@ -20,10 +20,10 @@ graph TD
     Orch -->|Task + count| Gen[Generator Interface]
     Gen -->|Prompt_Candidates| Orch
     Orch -->|Candidates| Sel[Selector Interface]
-    Sel -->|Chosen Candidate| Orch
+    Sel -->|Selected Candidate| Orch
     Orch -->|Candidate + Task| Eval[Evaluator Interface]
     Eval -->|Evaluation_Score| Orch
-    Orch -->|Reward Signal| Sel
+    Orch -->|Evaluation_Score as reward| Sel
     Orch -->|Results| User
 
     subgraph External
@@ -46,8 +46,8 @@ sequenceDiagram
         O->>G: generate(task_description, num_candidates)
         G-->>O: List[Prompt_Candidate]
         O->>S: select(candidates)
-        S-->>O: chosen_candidate
-        O->>E: evaluate(chosen_candidate, task_description)
+        S-->>O: selected_candidate
+        O->>E: evaluate(selected_candidate, task_description)
         E-->>O: Evaluation_Score
         O->>S: reward(score)
         S-->>O: ack
@@ -164,7 +164,7 @@ class IterationResult:
     iteration_number: int
     status: IterationStatus
     candidates: list[str] = field(default_factory=list)
-    chosen_candidate: str | None = None
+    selected_candidate: str | None = None
     evaluation_score: float | None = None
     error: str | None = None
 
@@ -194,7 +194,7 @@ class OptimizationResult:
 | `num_iterations` | Must be a positive integer (> 0) |
 | `retry_limit` | Must be a non-negative integer (>= 0) |
 | `evaluation_score` | Must be a finite float (not NaN, not Inf) |
-| `chosen_candidate` | Must exist in the original candidate set |
+| `selected_candidate` | Must exist in the original candidate set |
 
 
 ## Correctness Properties
@@ -221,7 +221,7 @@ class OptimizationResult:
 
 ### Property 4: Component argument passing integrity
 
-*For any* valid Optimization_Run, during each iteration the Orchestrator should pass the exact `task_description` and `num_candidates` to the Generator, the full candidate list to the Selector, the chosen candidate and `task_description` to the Evaluator, and the evaluation score to the Selector's reward method.
+*For any* valid Optimization_Run, during each iteration the Orchestrator should pass the exact `task_description` and `num_candidates` to the Generator, the full candidate list to the Selector, the selected candidate and `task_description` to the Evaluator, and the evaluation score to the Selector's reward method.
 
 **Validates: Requirements 2.1, 3.1, 4.1, 5.1**
 
@@ -245,7 +245,7 @@ class OptimizationResult:
 
 ### Property 8: Successful iteration completeness
 
-*For any* Iteration that completes without error, the Iteration status should be COMPLETE and the result should contain a non-null `chosen_candidate`, a non-null `evaluation_score`, and a non-empty `candidates` list.
+*For any* Iteration that completes without error, the Iteration status should be COMPLETE and the result should contain a non-null `selected_candidate`, a non-null `evaluation_score`, and a non-empty `candidates` list.
 
 **Validates: Requirements 5.2, 6.2**
 
