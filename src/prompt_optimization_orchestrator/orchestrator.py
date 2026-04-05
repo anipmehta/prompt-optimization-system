@@ -10,6 +10,8 @@ from prompt_optimization_orchestrator.interfaces import (
     SelectorInterface,
 )
 from prompt_optimization_orchestrator.models import (
+    IterationResult,
+    IterationStatus,
     OptimizationConfig,
     OptimizationRun,
 )
@@ -49,3 +51,49 @@ class Orchestrator:
         if run_id not in self._runs:
             raise RunNotFoundError(f"Run not found: {run_id}")
         return self._runs[run_id]
+
+    def _generate_candidates(
+        self, task_description: str, num_candidates: int, retry_limit: int
+    ) -> list[str]:
+        """Call the Generator with retry logic. Returns candidates or raises on total failure."""
+        last_error: Exception | None = None
+        for attempt in range(1 + retry_limit):
+            try:
+                candidates = self._generator.generate(task_description, num_candidates)
+                if len(candidates) < num_candidates and len(candidates) > 0:
+                    self._logger.warning(
+                        "Generator returned %d candidates, expected %d",
+                        len(candidates),
+                        num_candidates,
+                    )
+                return candidates
+            except Exception as e:
+                last_error = e
+                self._logger.warning(
+                    "Generator failed (attempt %d/%d): %s",
+                    attempt + 1,
+                    1 + retry_limit,
+                    e,
+                )
+        raise last_error  # type: ignore[misc]
+
+    def _run_generate_step(
+        self,
+        iteration: IterationResult,
+        task_description: str,
+        num_candidates: int,
+        retry_limit: int,
+    ) -> bool:
+        """Execute the generate step for an iteration. Returns True if successful."""
+        try:
+            candidates = self._generate_candidates(task_description, num_candidates, retry_limit)
+            if not candidates:
+                iteration.status = IterationStatus.FAILED
+                iteration.error = "Generator returned zero candidates"
+                return False
+            iteration.candidates = candidates
+            return True
+        except Exception as e:
+            iteration.status = IterationStatus.FAILED
+            iteration.error = f"Generator failed after retries: {e}"
+            return False
