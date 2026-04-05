@@ -52,8 +52,8 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
 - [ ] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 4. Implement iteration lifecycle — generate, select, evaluate, reward
-  - [ ] 4.1 Implement candidate generation step with retry logic
+- [-] 4. Implement iteration lifecycle — generate, select, evaluate, reward
+  - [-] 4.1 Implement candidate generation step with retry logic
     - Call Generator with `task_description` and `num_candidates`
     - Validate returned candidate count; log warning if fewer than requested
     - Mark iteration as FAILED if zero candidates returned
