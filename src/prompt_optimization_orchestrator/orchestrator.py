@@ -3,7 +3,7 @@
 import logging
 import uuid
 
-from prompt_optimization_orchestrator.exceptions import RunNotFoundError
+from prompt_optimization_orchestrator.exceptions import DataIntegrityError, RunNotFoundError
 from prompt_optimization_orchestrator.interfaces import (
     EvaluatorInterface,
     GeneratorInterface,
@@ -96,4 +96,46 @@ class Orchestrator:
         except Exception as e:
             iteration.status = IterationStatus.FAILED
             iteration.error = f"Generator failed after retries: {e}"
+            return False
+
+    def _select_candidate(self, candidates: list[str], retry_limit: int) -> str:
+        """Call the Selector with retry logic. Returns selected candidate or raises."""
+        last_error: Exception | None = None
+        for attempt in range(1 + retry_limit):
+            try:
+                selected = self._selector.select(candidates)
+                if selected not in candidates:
+                    raise DataIntegrityError(
+                        f"Selector returned candidate not in original set: {selected!r}"
+                    )
+                return selected
+            except DataIntegrityError:
+                raise
+            except Exception as e:
+                last_error = e
+                self._logger.warning(
+                    "Selector failed (attempt %d/%d): %s",
+                    attempt + 1,
+                    1 + retry_limit,
+                    e,
+                )
+        raise last_error  # type: ignore[misc]
+
+    def _run_select_step(
+        self,
+        iteration: IterationResult,
+        retry_limit: int,
+    ) -> bool:
+        """Execute the select step for an iteration. Returns True if successful."""
+        try:
+            selected = self._select_candidate(iteration.candidates, retry_limit)
+            iteration.selected_candidate = selected
+            return True
+        except DataIntegrityError as e:
+            iteration.status = IterationStatus.FAILED
+            iteration.error = f"Data integrity error: {e}"
+            return False
+        except Exception as e:
+            iteration.status = IterationStatus.FAILED
+            iteration.error = f"Selector failed after retries: {e}"
             return False

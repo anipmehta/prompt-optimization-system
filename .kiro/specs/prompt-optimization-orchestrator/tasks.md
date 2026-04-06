@@ -60,7 +60,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Retry on timeout/connection error up to `retry_limit`
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-  - [ ] 4.2 Implement candidate selection step with retry and integrity check
+  - [x] 4.2 Implement candidate selection step with retry and integrity check
     - Pass candidates to Selector
     - Verify selected candidate exists in original candidate set; mark FAILED with data integrity error if not
     - Retry on failure up to `retry_limit`
