@@ -14,7 +14,9 @@ from prompt_optimization_orchestrator.models import (
     IterationResult,
     IterationStatus,
     OptimizationConfig,
+    OptimizationResult,
     OptimizationRun,
+    RunStatus,
 )
 from prompt_optimization_orchestrator.validation import validate_config, validate_task_description
 
@@ -194,3 +196,66 @@ class Orchestrator:
         except Exception as e:
             self._logger.warning("Selector failed to accept reward: %s", e)
             iteration.status = IterationStatus.DEGRADED
+
+    def execute_run(self, run_id: str) -> OptimizationResult:
+        """Execute all iterations for a run and return results."""
+        run = self.get_run(run_id)
+        run.status = RunStatus.IN_PROGRESS
+        config = run.config
+
+        for i in range(config.num_iterations):
+            iteration = IterationResult(iteration_number=i, status=IterationStatus.IN_PROGRESS)
+            run.iterations.append(iteration)
+
+            if not self._run_generate_step(
+                iteration, run.task_description, config.num_candidates, config.retry_limit
+            ):
+                if self._should_abort(run):
+                    return self._build_result(run)
+                continue
+
+            if not self._run_select_step(iteration, config.retry_limit):
+                if self._should_abort(run):
+                    return self._build_result(run)
+                continue
+
+            if not self._run_evaluate_step(iteration, run.task_description, config.retry_limit):
+                if self._should_abort(run):
+                    return self._build_result(run)
+                continue
+
+            self._run_reward_step(iteration)
+
+        run.status = RunStatus.COMPLETE
+        return self._build_result(run)
+
+    def _should_abort(self, run: OptimizationRun) -> bool:
+        """Check if more than half of iterations have failed. If so, abort."""
+        failed = sum(1 for it in run.iterations if it.status == IterationStatus.FAILED)
+        if failed > len(run.iterations) / 2:
+            run.status = RunStatus.ABORTED
+            return True
+        return False
+
+    def _build_result(self, run: OptimizationRun) -> OptimizationResult:
+        """Build OptimizationResult from a run, selecting the best candidate."""
+        completed = [
+            it
+            for it in run.iterations
+            if it.status in (IterationStatus.COMPLETE, IterationStatus.DEGRADED)
+            and it.evaluation_score is not None
+        ]
+        best_candidate: str | None = None
+        best_score: float | None = None
+        if completed:
+            # Latest iteration wins ties
+            best_it = max(completed, key=lambda it: (it.evaluation_score, it.iteration_number))
+            best_candidate = best_it.selected_candidate
+            best_score = best_it.evaluation_score
+        return OptimizationResult(
+            run_id=run.run_id,
+            status=run.status,
+            best_candidate=best_candidate,
+            best_score=best_score,
+            iterations=run.iterations,
+        )
