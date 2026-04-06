@@ -17,6 +17,17 @@ from prompt_optimization_orchestrator.models import (
 )
 from prompt_optimization_orchestrator.orchestrator import Orchestrator
 
+# --- Test constants ---
+
+TASK_DESCRIPTION = "summarize articles"
+TASK_DESCRIPTION_ALT = "translate documents"
+NUM_CANDIDATES = 3
+NUM_ITERATIONS = 5
+RETRY_LIMIT = 2
+DEFAULT_SCORE = 0.9
+RETRY_SCORE = 0.85
+SAMPLE_CANDIDATES = ["prompt_a", "prompt_b", "prompt_c"]
+
 # --- Shared fakes ---
 
 
@@ -93,7 +104,34 @@ class AlwaysFailSelector:
 
 class FakeEvaluator:
     def evaluate(self, candidate: str, task_description: str) -> float:
-        return 0.9
+        return DEFAULT_SCORE
+
+
+class NaNEvaluator:
+    def evaluate(self, candidate: str, task_description: str) -> float:
+        return float("nan")
+
+
+class InfEvaluator:
+    def evaluate(self, candidate: str, task_description: str) -> float:
+        return float("inf")
+
+
+class FailThenSucceedEvaluator:
+    def __init__(self, fail_count: int):
+        self._fail_count = fail_count
+        self._calls = 0
+
+    def evaluate(self, candidate: str, task_description: str) -> float:
+        self._calls += 1
+        if self._calls <= self._fail_count:
+            raise ConnectionError("Evaluator unavailable")
+        return RETRY_SCORE
+
+
+class AlwaysFailEvaluator:
+    def evaluate(self, candidate: str, task_description: str) -> float:
+        raise ConnectionError("Evaluator unavailable")
 
 
 # --- Helpers ---
@@ -122,7 +160,7 @@ def orchestrator():
 
 @pytest.fixture
 def valid_config():
-    return OptimizationConfig(num_candidates=3, num_iterations=5)
+    return OptimizationConfig(num_candidates=NUM_CANDIDATES, num_iterations=NUM_ITERATIONS)
 
 
 # --- start_run / get_run ---
@@ -130,15 +168,15 @@ def valid_config():
 
 class TestStartRun:
     def test_returns_unique_run_ids(self, orchestrator, valid_config):
-        id1 = orchestrator.start_run("task A", valid_config)
-        id2 = orchestrator.start_run("task B", valid_config)
+        id1 = orchestrator.start_run(TASK_DESCRIPTION, valid_config)
+        id2 = orchestrator.start_run(TASK_DESCRIPTION_ALT, valid_config)
         assert id1 != id2
 
     def test_creates_run_with_pending_status(self, orchestrator, valid_config):
-        run_id = orchestrator.start_run("task A", valid_config)
+        run_id = orchestrator.start_run(TASK_DESCRIPTION, valid_config)
         run = orchestrator.get_run(run_id)
         assert run.status == RunStatus.PENDING
-        assert run.task_description == "task A"
+        assert run.task_description == TASK_DESCRIPTION
         assert run.config == valid_config
         assert run.iterations == []
 
@@ -147,14 +185,14 @@ class TestStartRun:
             orchestrator.start_run("", valid_config)
 
     def test_invalid_config_raises(self, orchestrator):
-        bad_config = OptimizationConfig(num_candidates=0, num_iterations=5)
+        bad_config = OptimizationConfig(num_candidates=0, num_iterations=NUM_ITERATIONS)
         with pytest.raises(ValidationError, match="num_candidates"):
-            orchestrator.start_run("task A", bad_config)
+            orchestrator.start_run(TASK_DESCRIPTION, bad_config)
 
 
 class TestGetRun:
     def test_returns_existing_run(self, orchestrator, valid_config):
-        run_id = orchestrator.start_run("task A", valid_config)
+        run_id = orchestrator.start_run(TASK_DESCRIPTION, valid_config)
         run = orchestrator.get_run(run_id)
         assert run.run_id == run_id
 
@@ -169,41 +207,43 @@ class TestGetRun:
 class TestGenerateCandidates:
     def test_returns_candidates_on_success(self):
         orch = _make_orchestrator()
-        result = orch._generate_candidates("task", 3, retry_limit=0)
-        assert len(result) == 3
+        result = orch._generate_candidates(TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=0)
+        assert len(result) == NUM_CANDIDATES
 
     def test_retries_on_failure_then_succeeds(self):
-        gen = FailThenSucceedGenerator(fail_count=2)
+        gen = FailThenSucceedGenerator(fail_count=RETRY_LIMIT)
         orch = _make_orchestrator(generator=gen)
-        result = orch._generate_candidates("task", 3, retry_limit=2)
-        assert len(result) == 3
+        result = orch._generate_candidates(
+            TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=RETRY_LIMIT
+        )
+        assert len(result) == NUM_CANDIDATES
 
     def test_raises_after_exhausting_retries(self):
         orch = _make_orchestrator(generator=AlwaysFailGenerator())
         with pytest.raises(ConnectionError):
-            orch._generate_candidates("task", 3, retry_limit=2)
+            orch._generate_candidates(TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=RETRY_LIMIT)
 
     def test_logs_warning_on_fewer_candidates(self, caplog):
         gen = FakeGenerator(candidates=["only_one"])
         orch = _make_orchestrator(generator=gen, logger=logging.getLogger("test"))
         with caplog.at_level(logging.WARNING, logger="test"):
-            result = orch._generate_candidates("task", 3, retry_limit=0)
+            result = orch._generate_candidates(TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=0)
         assert len(result) == 1
-        assert "expected 3" in caplog.text
+        assert f"expected {NUM_CANDIDATES}" in caplog.text
 
 
 class TestRunGenerateStep:
     def test_success_populates_candidates(self):
         orch = _make_orchestrator()
         iteration = _make_iteration()
-        ok = orch._run_generate_step(iteration, "task", 3, retry_limit=0)
+        ok = orch._run_generate_step(iteration, TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=0)
         assert ok is True
-        assert len(iteration.candidates) == 3
+        assert len(iteration.candidates) == NUM_CANDIDATES
 
     def test_zero_candidates_marks_failed(self):
         orch = _make_orchestrator(generator=EmptyGenerator())
         iteration = _make_iteration()
-        ok = orch._run_generate_step(iteration, "task", 3, retry_limit=0)
+        ok = orch._run_generate_step(iteration, TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=0)
         assert ok is False
         assert iteration.status == IterationStatus.FAILED
         assert "zero candidates" in iteration.error
@@ -211,7 +251,7 @@ class TestRunGenerateStep:
     def test_exception_marks_failed(self):
         orch = _make_orchestrator(generator=AlwaysFailGenerator())
         iteration = _make_iteration()
-        ok = orch._run_generate_step(iteration, "task", 3, retry_limit=1)
+        ok = orch._run_generate_step(iteration, TASK_DESCRIPTION, NUM_CANDIDATES, retry_limit=1)
         assert ok is False
         assert iteration.status == IterationStatus.FAILED
         assert "failed after retries" in iteration.error
@@ -223,42 +263,42 @@ class TestRunGenerateStep:
 class TestSelectCandidate:
     def test_returns_valid_candidate(self):
         orch = _make_orchestrator()
-        result = orch._select_candidate(["a", "b"], retry_limit=0)
-        assert result == "a"
+        result = orch._select_candidate(SAMPLE_CANDIDATES, retry_limit=0)
+        assert result == SAMPLE_CANDIDATES[0]
 
     def test_raises_data_integrity_on_bad_candidate(self):
         orch = _make_orchestrator(selector=BadCandidateSelector())
         with pytest.raises(DataIntegrityError, match="not in original set"):
-            orch._select_candidate(["a", "b"], retry_limit=0)
+            orch._select_candidate(SAMPLE_CANDIDATES, retry_limit=0)
 
     def test_retries_on_failure_then_succeeds(self):
-        sel = FailThenSucceedSelector(fail_count=2)
+        sel = FailThenSucceedSelector(fail_count=RETRY_LIMIT)
         orch = _make_orchestrator(selector=sel)
-        result = orch._select_candidate(["a", "b"], retry_limit=2)
-        assert result == "a"
+        result = orch._select_candidate(SAMPLE_CANDIDATES, retry_limit=RETRY_LIMIT)
+        assert result == SAMPLE_CANDIDATES[0]
 
     def test_raises_after_exhausting_retries(self):
         orch = _make_orchestrator(selector=AlwaysFailSelector())
         with pytest.raises(ConnectionError):
-            orch._select_candidate(["a", "b"], retry_limit=1)
+            orch._select_candidate(SAMPLE_CANDIDATES, retry_limit=1)
 
     def test_data_integrity_error_not_retried(self):
         orch = _make_orchestrator(selector=BadCandidateSelector())
         with pytest.raises(DataIntegrityError):
-            orch._select_candidate(["a", "b"], retry_limit=5)
+            orch._select_candidate(SAMPLE_CANDIDATES, retry_limit=5)
 
 
 class TestRunSelectStep:
     def test_success_sets_selected_candidate(self):
         orch = _make_orchestrator()
-        iteration = _make_iteration(candidates=["a", "b", "c"])
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
         ok = orch._run_select_step(iteration, retry_limit=0)
         assert ok is True
-        assert iteration.selected_candidate == "a"
+        assert iteration.selected_candidate == SAMPLE_CANDIDATES[0]
 
     def test_data_integrity_marks_failed(self):
         orch = _make_orchestrator(selector=BadCandidateSelector())
-        iteration = _make_iteration(candidates=["a", "b", "c"])
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
         ok = orch._run_select_step(iteration, retry_limit=0)
         assert ok is False
         assert iteration.status == IterationStatus.FAILED
@@ -266,8 +306,74 @@ class TestRunSelectStep:
 
     def test_exception_marks_failed(self):
         orch = _make_orchestrator(selector=AlwaysFailSelector())
-        iteration = _make_iteration(candidates=["a", "b", "c"])
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
         ok = orch._run_select_step(iteration, retry_limit=1)
+        assert ok is False
+        assert iteration.status == IterationStatus.FAILED
+        assert "failed after retries" in iteration.error
+
+
+# --- Evaluate step ---
+
+
+class TestEvaluateCandidate:
+    def test_returns_score_on_success(self):
+        orch = _make_orchestrator()
+        score = orch._evaluate_candidate(SAMPLE_CANDIDATES[0], TASK_DESCRIPTION, retry_limit=0)
+        assert score == DEFAULT_SCORE
+
+    def test_raises_on_nan_score(self):
+        orch = _make_orchestrator(evaluator=NaNEvaluator())
+        with pytest.raises(ValueError, match="non-finite score"):
+            orch._evaluate_candidate(SAMPLE_CANDIDATES[0], TASK_DESCRIPTION, retry_limit=0)
+
+    def test_raises_on_inf_score(self):
+        orch = _make_orchestrator(evaluator=InfEvaluator())
+        with pytest.raises(ValueError, match="non-finite score"):
+            orch._evaluate_candidate(SAMPLE_CANDIDATES[0], TASK_DESCRIPTION, retry_limit=0)
+
+    def test_retries_on_failure_then_succeeds(self):
+        ev = FailThenSucceedEvaluator(fail_count=RETRY_LIMIT)
+        orch = _make_orchestrator(evaluator=ev)
+        score = orch._evaluate_candidate(
+            SAMPLE_CANDIDATES[0], TASK_DESCRIPTION, retry_limit=RETRY_LIMIT
+        )
+        assert score == RETRY_SCORE
+
+    def test_raises_after_exhausting_retries(self):
+        orch = _make_orchestrator(evaluator=AlwaysFailEvaluator())
+        with pytest.raises(ConnectionError):
+            orch._evaluate_candidate(SAMPLE_CANDIDATES[0], TASK_DESCRIPTION, retry_limit=1)
+
+    def test_nan_not_retried(self):
+        orch = _make_orchestrator(evaluator=NaNEvaluator())
+        with pytest.raises(ValueError):
+            orch._evaluate_candidate(SAMPLE_CANDIDATES[0], TASK_DESCRIPTION, retry_limit=5)
+
+
+class TestRunEvaluateStep:
+    def test_success_sets_score(self):
+        orch = _make_orchestrator()
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
+        iteration.selected_candidate = SAMPLE_CANDIDATES[0]
+        ok = orch._run_evaluate_step(iteration, TASK_DESCRIPTION, retry_limit=0)
+        assert ok is True
+        assert iteration.evaluation_score == DEFAULT_SCORE
+
+    def test_nan_marks_failed(self):
+        orch = _make_orchestrator(evaluator=NaNEvaluator())
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
+        iteration.selected_candidate = SAMPLE_CANDIDATES[0]
+        ok = orch._run_evaluate_step(iteration, TASK_DESCRIPTION, retry_limit=0)
+        assert ok is False
+        assert iteration.status == IterationStatus.FAILED
+        assert "validation error" in iteration.error
+
+    def test_exception_marks_failed(self):
+        orch = _make_orchestrator(evaluator=AlwaysFailEvaluator())
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
+        iteration.selected_candidate = SAMPLE_CANDIDATES[0]
+        ok = orch._run_evaluate_step(iteration, TASK_DESCRIPTION, retry_limit=1)
         assert ok is False
         assert iteration.status == IterationStatus.FAILED
         assert "failed after retries" in iteration.error

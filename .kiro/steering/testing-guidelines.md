@@ -17,3 +17,4 @@ inclusion: auto
 - Only test our own code. Do not test library utilities or third-party dependencies.
 - Test the new code we add, nothing more, nothing less.
 - Keep tests for a module in a single test file (e.g., all Orchestrator tests in test_orchestrator.py).
+- No magic strings or magic numbers in tests. Use constants or fixtures.

@@ -1,6 +1,7 @@
 """Core Orchestrator class for prompt optimization."""
 
 import logging
+import math
 import uuid
 
 from prompt_optimization_orchestrator.exceptions import DataIntegrityError, RunNotFoundError
@@ -138,4 +139,49 @@ class Orchestrator:
         except Exception as e:
             iteration.status = IterationStatus.FAILED
             iteration.error = f"Selector failed after retries: {e}"
+            return False
+
+    def _evaluate_candidate(self, candidate: str, task_description: str, retry_limit: int) -> float:
+        """Call the Evaluator with retry logic. Returns a finite score or raises."""
+        last_error: Exception | None = None
+        for attempt in range(1 + retry_limit):
+            try:
+                score = self._evaluator.evaluate(candidate, task_description)
+                if not isinstance(score, (int, float)) or not math.isfinite(score):
+                    raise ValueError(f"Evaluator returned non-finite score: {score}")
+                return float(score)
+            except ValueError:
+                raise
+            except Exception as e:
+                last_error = e
+                self._logger.warning(
+                    "Evaluator failed (attempt %d/%d): %s",
+                    attempt + 1,
+                    1 + retry_limit,
+                    e,
+                )
+        raise last_error  # type: ignore[misc]
+
+    def _run_evaluate_step(
+        self,
+        iteration: IterationResult,
+        task_description: str,
+        retry_limit: int,
+    ) -> bool:
+        """Execute the evaluate step for an iteration. Returns True if successful."""
+        try:
+            score = self._evaluate_candidate(
+                iteration.selected_candidate,  # type: ignore[arg-type]
+                task_description,
+                retry_limit,
+            )
+            iteration.evaluation_score = score
+            return True
+        except ValueError as e:
+            iteration.status = IterationStatus.FAILED
+            iteration.error = f"Evaluation validation error: {e}"
+            return False
+        except Exception as e:
+            iteration.status = IterationStatus.FAILED
+            iteration.error = f"Evaluator failed after retries: {e}"
             return False
