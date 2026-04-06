@@ -415,3 +415,188 @@ class TestRunRewardStep:
         with caplog.at_level(logging.WARNING, logger="test"):
             orch._run_reward_step(iteration)
         assert "failed to accept reward" in caplog.text
+
+
+# --- execute_run ---
+
+ABORT_ITERATIONS = 3  # with 3 iterations, 2 failures triggers abort (>50%)
+
+
+class TestExecuteRun:
+    def test_happy_path_completes_all_iterations(self, orchestrator, valid_config):
+        run_id = orchestrator.start_run(TASK_DESCRIPTION, valid_config)
+        result = orchestrator.execute_run(run_id)
+        assert result.status == RunStatus.COMPLETE
+        assert len(result.iterations) == NUM_ITERATIONS
+        assert result.best_candidate is not None
+        assert result.best_score == DEFAULT_SCORE
+
+    def test_all_iterations_have_complete_or_degraded_status(self, orchestrator, valid_config):
+        run_id = orchestrator.start_run(TASK_DESCRIPTION, valid_config)
+        result = orchestrator.execute_run(run_id)
+        for it in result.iterations:
+            assert it.status in (IterationStatus.COMPLETE, IterationStatus.DEGRADED)
+
+    def test_aborts_on_majority_failure(self):
+        orch = _make_orchestrator(generator=AlwaysFailGenerator())
+        config = OptimizationConfig(num_candidates=NUM_CANDIDATES, num_iterations=ABORT_ITERATIONS)
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.ABORTED
+        assert len(result.iterations) < ABORT_ITERATIONS
+
+    def test_best_candidate_has_highest_score(self):
+        """When all scores are equal, latest iteration wins."""
+        orch = _make_orchestrator()
+        config = OptimizationConfig(num_candidates=NUM_CANDIDATES, num_iterations=NUM_ITERATIONS)
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.best_score == DEFAULT_SCORE
+        # Latest iteration should win the tie
+        last_complete = [
+            it
+            for it in result.iterations
+            if it.status in (IterationStatus.COMPLETE, IterationStatus.DEGRADED)
+        ][-1]
+        assert result.best_candidate == last_complete.selected_candidate
+
+    def test_no_successful_iterations_returns_none(self):
+        orch = _make_orchestrator(generator=EmptyGenerator())
+        config = OptimizationConfig(num_candidates=NUM_CANDIDATES, num_iterations=ABORT_ITERATIONS)
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.best_candidate is None
+        assert result.best_score is None
+
+    def test_degraded_iteration_still_counts_for_best(self):
+        orch = _make_orchestrator(selector=FailRewardSelector())
+        config = OptimizationConfig(num_candidates=NUM_CANDIDATES, num_iterations=NUM_ITERATIONS)
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.best_candidate is not None
+        assert result.best_score == DEFAULT_SCORE
+
+    def test_aborts_on_select_failures(self):
+        orch = _make_orchestrator(selector=AlwaysFailSelector())
+        config = OptimizationConfig(
+            num_candidates=NUM_CANDIDATES,
+            num_iterations=ABORT_ITERATIONS,
+            retry_limit=0,
+        )
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.ABORTED
+
+    def test_aborts_on_evaluate_failures(self):
+        orch = _make_orchestrator(evaluator=AlwaysFailEvaluator())
+        config = OptimizationConfig(
+            num_candidates=NUM_CANDIDATES,
+            num_iterations=ABORT_ITERATIONS,
+            retry_limit=0,
+        )
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.ABORTED
+
+    def test_partial_failures_still_completes(self):
+        """One failure after successful iterations should not abort."""
+
+        class FailLastGenerator:
+            def __init__(self, total: int):
+                self._total = total
+                self._calls = 0
+
+            def generate(self, task_description: str, num_candidates: int) -> list[str]:
+                self._calls += 1
+                if self._calls == self._total:
+                    return []
+                return [f"c{i}" for i in range(num_candidates)]
+
+        orch = _make_orchestrator(generator=FailLastGenerator(total=NUM_ITERATIONS))
+        config = OptimizationConfig(
+            num_candidates=NUM_CANDIDATES,
+            num_iterations=NUM_ITERATIONS,
+        )
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.COMPLETE
+        failed = sum(1 for it in result.iterations if it.status == IterationStatus.FAILED)
+        assert failed == 1
+
+    def test_select_failure_continues_when_not_majority(self):
+        """Select fails on last iteration but doesn't trigger abort."""
+
+        class FailLastSelector:
+            def __init__(self, total: int):
+                self._total = total
+                self._calls = 0
+
+            def select(self, candidates: list[str]) -> str:
+                self._calls += 1
+                if self._calls == self._total:
+                    raise ConnectionError("Selector failed")
+                return candidates[0]
+
+            def reward(self, score: float) -> None:
+                pass
+
+        orch = _make_orchestrator(selector=FailLastSelector(total=NUM_ITERATIONS))
+        config = OptimizationConfig(
+            num_candidates=NUM_CANDIDATES,
+            num_iterations=NUM_ITERATIONS,
+            retry_limit=0,
+        )
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.COMPLETE
+        failed = sum(1 for it in result.iterations if it.status == IterationStatus.FAILED)
+        assert failed == 1
+
+    def test_evaluate_failure_continues_when_not_majority(self):
+        """Evaluate fails on last iteration but doesn't trigger abort."""
+
+        class FailLastEvaluator:
+            def __init__(self, total: int):
+                self._total = total
+                self._calls = 0
+
+            def evaluate(self, candidate: str, task_description: str) -> float:
+                self._calls += 1
+                if self._calls == self._total:
+                    raise ConnectionError("Evaluator failed")
+                return DEFAULT_SCORE
+
+        orch = _make_orchestrator(evaluator=FailLastEvaluator(total=NUM_ITERATIONS))
+        config = OptimizationConfig(
+            num_candidates=NUM_CANDIDATES,
+            num_iterations=NUM_ITERATIONS,
+            retry_limit=0,
+        )
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.COMPLETE
+        failed = sum(1 for it in result.iterations if it.status == IterationStatus.FAILED)
+        assert failed == 1
+
+    def test_abort_on_last_iteration_stays_aborted(self):
+        """Abort on final iteration keeps ABORTED status."""
+
+        class FailAfterFirstGenerator:
+            def __init__(self):
+                self._calls = 0
+
+            def generate(self, task_description: str, num_candidates: int) -> list[str]:
+                self._calls += 1
+                if self._calls > 1:
+                    return []
+                return [f"c{i}" for i in range(num_candidates)]
+
+        orch = _make_orchestrator(generator=FailAfterFirstGenerator())
+        config = OptimizationConfig(
+            num_candidates=NUM_CANDIDATES,
+            num_iterations=ABORT_ITERATIONS,
+            retry_limit=0,
+        )
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        result = orch.execute_run(run_id)
+        assert result.status == RunStatus.ABORTED

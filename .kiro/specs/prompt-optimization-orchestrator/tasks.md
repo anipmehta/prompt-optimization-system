@@ -101,21 +101,21 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
 - [ ] 5. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 6. Implement run execution, abort logic, and results
-  - [ ] 6.1 Implement `execute_run` method
+- [x] 6. Implement run execution, abort logic, and results
+  - [x] 6.1 Implement `execute_run` method
     - Execute iterations sequentially up to `num_iterations`
     - Track iteration statuses (PENDING, IN_PROGRESS, COMPLETE, FAILED, DEGRADED)
     - Abort run if more than half of iterations fail; set status to ABORTED
     - Mark run as COMPLETE when all iterations finish without abort
     - _Requirements: 6.1, 6.3, 6.4, 6.5_
 
-  - [ ] 6.2 Implement result aggregation and best candidate selection
+  - [x] 6.2 Implement result aggregation and best candidate selection
     - Build `OptimizationResult` from completed iterations
     - Select candidate with highest `evaluation_score`; tie-break by latest iteration
     - Return list of all iteration results
     - _Requirements: 7.1, 7.2, 7.4_
 
-  - [ ] 6.3 Implement `get_run` method
+  - [x] 6.3 Implement `get_run` method
     - Look up run by `run_id`, return current state
     - Raise `RunNotFoundError` for unknown IDs
     - _Requirements: 7.3_
