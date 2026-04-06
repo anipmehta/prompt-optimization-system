@@ -185,3 +185,12 @@ class Orchestrator:
             iteration.status = IterationStatus.FAILED
             iteration.error = f"Evaluator failed after retries: {e}"
             return False
+
+    def _run_reward_step(self, iteration: IterationResult) -> None:
+        """Send evaluation score to Selector as reward. Marks iteration DEGRADED on failure."""
+        try:
+            self._selector.reward(iteration.evaluation_score)  # type: ignore[arg-type]
+            iteration.status = IterationStatus.COMPLETE
+        except Exception as e:
+            self._logger.warning("Selector failed to accept reward: %s", e)
+            iteration.status = IterationStatus.DEGRADED
