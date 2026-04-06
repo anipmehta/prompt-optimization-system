@@ -600,3 +600,37 @@ class TestExecuteRun:
         run_id = orch.start_run(TASK_DESCRIPTION, config)
         result = orch.execute_run(run_id)
         assert result.status == RunStatus.ABORTED
+
+
+# --- Logging ---
+
+
+class TestLogging:
+    def test_start_run_logs_info(self, valid_config, caplog):
+        orch = _make_orchestrator(logger=logging.getLogger("test"))
+        with caplog.at_level(logging.INFO, logger="test"):
+            run_id = orch.start_run(TASK_DESCRIPTION, valid_config)
+        assert run_id in caplog.text
+        assert TASK_DESCRIPTION in caplog.text
+
+    def test_execute_run_logs_iteration_start(self, valid_config, caplog):
+        orch = _make_orchestrator(logger=logging.getLogger("test"))
+        run_id = orch.start_run(TASK_DESCRIPTION, valid_config)
+        with caplog.at_level(logging.INFO, logger="test"):
+            orch.execute_run(run_id)
+        assert "Iteration 0 started" in caplog.text
+
+    def test_execute_run_logs_completion(self, valid_config, caplog):
+        orch = _make_orchestrator(logger=logging.getLogger("test"))
+        run_id = orch.start_run(TASK_DESCRIPTION, valid_config)
+        with caplog.at_level(logging.INFO, logger="test"):
+            orch.execute_run(run_id)
+        assert "Run complete" in caplog.text
+
+    def test_abort_logs_warning(self, caplog):
+        orch = _make_orchestrator(generator=AlwaysFailGenerator(), logger=logging.getLogger("test"))
+        config = OptimizationConfig(num_candidates=NUM_CANDIDATES, num_iterations=ABORT_ITERATIONS)
+        run_id = orch.start_run(TASK_DESCRIPTION, config)
+        with caplog.at_level(logging.WARNING, logger="test"):
+            orch.execute_run(run_id)
+        assert "Run aborted" in caplog.text
