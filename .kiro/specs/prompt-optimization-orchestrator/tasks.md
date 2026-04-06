@@ -143,15 +143,15 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
 - [ ] 7. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 8. Implement observability, serialization, and final wiring
-  - [ ] 8.1 Implement logging throughout the Orchestrator
+- [-] 8. Implement observability, serialization, and final wiring
+  - [x] 8.1 Implement logging throughout the Orchestrator
     - Log run start with run_id, task_description, config
     - Log iteration start with iteration number and run_id
     - Log component failures with component name, error details, retry attempt
     - Log run completion/abort with final status and summary
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-  - [ ] 8.2 Implement serialization module
+  - [-] 8.2 Implement serialization module
     - Create `serialization.py` with `serialize_run` and `deserialize_run` functions
     - Handle dataclass-to-JSON and JSON-to-dataclass conversion including enums
     - Validate JSON structure on deserialization; raise `DeserializationError` for malformed input
@@ -161,7 +161,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 14: Serialization round-trip**
     - **Validates: Requirements 10.1, 10.2, 10.3**
 
-  - [ ] 8.4 Wire up package exports in `__init__.py`
+  - [-] 8.4 Wire up package exports in `__init__.py`
     - Export all public classes, interfaces, functions, and exceptions
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
 

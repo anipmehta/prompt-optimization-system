@@ -47,6 +47,12 @@ class Orchestrator:
             task_description=task_description,
             config=config,
         )
+        self._logger.info(
+            "Run started: run_id=%s, task=%r, config=%s",
+            run_id,
+            task_description,
+            config,
+        )
         return run_id
 
     def get_run(self, run_id: str) -> OptimizationRun:
@@ -206,6 +212,7 @@ class Orchestrator:
         for i in range(config.num_iterations):
             iteration = IterationResult(iteration_number=i, status=IterationStatus.IN_PROGRESS)
             run.iterations.append(iteration)
+            self._logger.info("Iteration %d started: run_id=%s", i, run_id)
 
             if not self._run_generate_step(
                 iteration, run.task_description, config.num_candidates, config.retry_limit
@@ -227,6 +234,7 @@ class Orchestrator:
             self._run_reward_step(iteration)
 
         run.status = RunStatus.COMPLETE
+        self._logger.info("Run complete: run_id=%s, iterations=%d", run_id, len(run.iterations))
         return self._build_result(run)
 
     def _should_abort(self, run: OptimizationRun) -> bool:
@@ -234,6 +242,12 @@ class Orchestrator:
         failed = sum(1 for it in run.iterations if it.status == IterationStatus.FAILED)
         if failed > len(run.iterations) / 2:
             run.status = RunStatus.ABORTED
+            self._logger.warning(
+                "Run aborted: run_id=%s, failed=%d/%d",
+                run.run_id,
+                failed,
+                len(run.iterations),
+            )
             return True
         return False
 
