@@ -377,3 +377,41 @@ class TestRunEvaluateStep:
         assert ok is False
         assert iteration.status == IterationStatus.FAILED
         assert "failed after retries" in iteration.error
+
+
+# --- Reward step ---
+
+
+class FailRewardSelector:
+    def select(self, candidates: list[str]) -> str:
+        return candidates[0]
+
+    def reward(self, score: float) -> None:
+        raise ConnectionError("Selector reward failed")
+
+
+class TestRunRewardStep:
+    def test_success_marks_complete(self):
+        orch = _make_orchestrator()
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
+        iteration.selected_candidate = SAMPLE_CANDIDATES[0]
+        iteration.evaluation_score = DEFAULT_SCORE
+        orch._run_reward_step(iteration)
+        assert iteration.status == IterationStatus.COMPLETE
+
+    def test_failure_marks_degraded(self):
+        orch = _make_orchestrator(selector=FailRewardSelector())
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
+        iteration.selected_candidate = SAMPLE_CANDIDATES[0]
+        iteration.evaluation_score = DEFAULT_SCORE
+        orch._run_reward_step(iteration)
+        assert iteration.status == IterationStatus.DEGRADED
+
+    def test_failure_logs_warning(self, caplog):
+        orch = _make_orchestrator(selector=FailRewardSelector(), logger=logging.getLogger("test"))
+        iteration = _make_iteration(candidates=SAMPLE_CANDIDATES)
+        iteration.selected_candidate = SAMPLE_CANDIDATES[0]
+        iteration.evaluation_score = DEFAULT_SCORE
+        with caplog.at_level(logging.WARNING, logger="test"):
+            orch._run_reward_step(iteration)
+        assert "failed to accept reward" in caplog.text

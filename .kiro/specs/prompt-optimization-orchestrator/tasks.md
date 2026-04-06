@@ -72,7 +72,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Retry on failure up to `retry_limit`
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 4.4 Implement reward feedback step
+  - [-] 4.4 Implement reward feedback step
     - Send evaluation score to Selector's `reward` method
     - On success, mark iteration as COMPLETE
     - On failure, log the failure and mark iteration as DEGRADED, continue to next iteration
