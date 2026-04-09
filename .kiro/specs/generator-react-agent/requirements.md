@@ -26,7 +26,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 
 ## Requirements
 
-### Requirement 1: Implement the GeneratorInterface Protocol
+### Requirement 1: Implement the GeneratorInterface Protocol [P0]
 
 **User Story:** As the Orchestrator, I want the Generator_Agent to conform to the GeneratorInterface protocol, so that it can be injected as the generator component in optimization runs.
 
@@ -38,7 +38,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. IF num_candidates is less than 1, THEN THE Generator_Agent SHALL raise a ValueError with a descriptive message.
 5. IF the Task_Description is empty or contains only whitespace, THEN THE Generator_Agent SHALL raise a ValueError with a descriptive message.
 
-### Requirement 2: Execute the ReAct Reasoning Loop
+### Requirement 2: Execute the ReAct Reasoning Loop [P0]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to reason iteratively about the task before generating candidates, so that the resulting prompts are well-informed and high quality.
 
@@ -51,7 +51,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 5. IF the ReAct_Loop reaches the Max_Iterations limit, THEN THE Generator_Agent SHALL exit the loop and produce candidates using whatever information has been gathered so far.
 6. THE Generator_Agent SHALL maintain an ordered trace of all Thought, Action, and Observation steps for the duration of a single `generate` call.
 
-### Requirement 3: Provide Task Analysis Tool
+### Requirement 3: Provide Task Analysis Tool [P1]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to analyze the task description, so that it understands the domain, intent, and constraints before generating prompts.
 
@@ -62,7 +62,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 3. IF the Task_Description is ambiguous, THEN THE Task_Analyzer SHALL return its best interpretation along with a confidence indicator.
 4. IF the LLM_Client call fails during task analysis, THEN THE Task_Analyzer SHALL raise an error that the Generator_Agent can handle in its ReAct_Loop.
 
-### Requirement 4: Provide Template Retrieval Tool
+### Requirement 4: Provide Template Retrieval Tool [P2]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to retrieve relevant prompt templates, so that generated candidates follow proven patterns.
 
@@ -72,7 +72,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 2. WHEN no matching templates are found, THE Template_Retriever SHALL return an empty list.
 3. THE Template_Retriever SHALL return templates ranked by relevance to the query.
 
-### Requirement 5: Provide Example Search Tool
+### Requirement 5: Provide Example Search Tool [P2]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to find relevant examples for the task, so that generated prompts can include effective few-shot demonstrations.
 
@@ -82,7 +82,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 2. WHEN no matching examples are found, THE Example_Searcher SHALL return an empty list.
 3. THE Example_Searcher SHALL return examples ranked by relevance to the task type.
 
-### Requirement 6: Provide Candidate Refinement Tool
+### Requirement 6: Provide Candidate Refinement Tool [P1]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to refine draft prompt candidates, so that the final candidates are polished and effective.
 
@@ -93,7 +93,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 3. IF the LLM_Client call fails during refinement, THEN THE Candidate_Refiner SHALL raise an error that the Generator_Agent can handle in its ReAct_Loop.
 4. THE Candidate_Refiner SHALL preserve the core intent of the original draft while improving clarity, specificity, and effectiveness.
 
-### Requirement 7: Produce Diverse Prompt Candidates
+### Requirement 7: Produce Diverse Prompt Candidates [P1]
 
 **User Story:** As a prompt engineer, I want the generated prompt candidates to be diverse, so that the RL Selector has meaningfully different options to choose from.
 
@@ -103,7 +103,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 2. THE Generator_Agent SHALL produce candidates that vary across dimensions such as instruction style, level of detail, use of examples, and output format specification.
 3. IF num_candidates is greater than 1, THEN THE Generator_Agent SHALL verify that no two returned Prompt_Candidates are identical strings.
 
-### Requirement 8: Integrate with llm-toolbox LLM Client
+### Requirement 8: Integrate with llm-toolbox LLM Client [P0]
 
 **User Story:** As a developer, I want the Generator_Agent to use the llm-toolbox library for LLM calls, so that it shares the same LLM infrastructure as the rest of the system.
 
@@ -113,7 +113,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 2. THE Generator_Agent SHALL use the injected LLM_Client for all LLM calls during the ReAct_Loop and candidate generation.
 3. THE Generator_Agent SHALL not instantiate its own LLM_Client internally.
 
-### Requirement 9: Handle Errors Gracefully in the ReAct Loop
+### Requirement 9: Handle Errors Gracefully in the ReAct Loop [P0]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to handle tool failures gracefully, so that a single tool error does not prevent candidate generation.
 
@@ -124,7 +124,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 3. IF the LLM_Client fails during final candidate generation, THEN THE Generator_Agent SHALL raise an error to the caller.
 4. THE Generator_Agent SHALL not retry failed Tool invocations within the ReAct_Loop (retries are handled at the Orchestrator level).
 
-### Requirement 10: Support Agent Configuration
+### Requirement 10: Support Agent Configuration [P1]
 
 **User Story:** As a developer, I want to configure the Generator_Agent's behavior, so that I can tune the ReAct loop depth and generation parameters.
 
@@ -136,7 +136,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. THE Agent_Config SHALL allow specifying a system prompt template used for the LLM_Client during the ReAct_Loop.
 5. THE Agent_Config SHALL have a sensible default system prompt template that instructs the LLM to follow the ReAct pattern.
 
-### Requirement 11: Observability and Logging
+### Requirement 11: Observability and Logging [P1]
 
 **User Story:** As a developer, I want the Generator_Agent to log key events during generation, so that I can debug issues and understand the agent's reasoning process.
 
@@ -148,7 +148,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. WHEN a Tool invocation fails, THE Generator_Agent SHALL log the tool name and error details.
 5. WHEN the Generator_Agent completes candidate generation, THE Generator_Agent SHALL log the number of candidates produced and the total number of ReAct_Loop iterations executed.
 6. THE Generator_Agent SHALL accept an optional logger instance via dependency injection, defaulting to a module-level logger.
-### Requirement 12: Circuit Breaker for Tool Failures
+### Requirement 12: Circuit Breaker for Tool Failures [P0]
 
 **User Story:** As a developer, I want the Generator_Agent to stop calling a tool that keeps failing, so that the ReAct loop doesn't waste time on broken tools.
 
@@ -160,7 +160,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. THE Agent_Config SHALL allow specifying the circuit breaker failure threshold per tool.
 5. THE Generator_Agent SHALL reset all circuit breaker states at the start of each new `generate` call.
 
-### Requirement 13: Prompt Injection Protection
+### Requirement 13: Prompt Injection Protection [P0]
 
 **User Story:** As a security engineer, I want the Generator_Agent to sanitize inputs before passing them to the LLM, so that malicious task descriptions cannot hijack the agent's behavior.
 
@@ -172,7 +172,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. THE Generator_Agent SHALL NOT include raw user input directly in system prompts — user input SHALL always be placed in clearly delimited user-content sections.
 5. WHEN a sanitization step modifies the Task_Description, THE Generator_Agent SHALL log a warning with details of what was sanitized.
 
-### Requirement 14: Generation Timeout
+### Requirement 14: Generation Timeout [P0]
 
 **User Story:** As a developer, I want the Generator_Agent to respect a time budget, so that a slow LLM or stuck ReAct loop doesn't block the Orchestrator indefinitely.
 
@@ -184,7 +184,7 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. THE Generator_Agent SHALL check the elapsed time before each ReAct_Loop iteration and before final candidate generation.
 5. WHEN a timeout occurs, THE Generator_Agent SHALL log a warning including the elapsed time and the number of iterations completed.
 
-### Requirement 15: Input Sanitization for Tools
+### Requirement 15: Input Sanitization for Tools [P0]
 
 **User Story:** As a security engineer, I want all inputs passed to tools to be sanitized, so that tool implementations are protected from malformed or malicious data.
 
@@ -194,3 +194,15 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 2. THE Generator_Agent SHALL enforce a maximum input length per tool call (configurable via Agent_Config, default: 5,000 characters) and truncate inputs that exceed the limit.
 3. WHEN an input is truncated, THE Generator_Agent SHALL log a warning and record the truncation in the Observation trace.
 4. IF a Tool returns output that exceeds a configurable maximum output length (default: 50,000 characters), THEN THE Generator_Agent SHALL truncate the output before incorporating it into the ReAct_Loop context.
+
+### Requirement 16: Output and Token Guardrails [P0]
+
+**User Story:** As a developer, I want the Generator_Agent to cap LLM output size and token usage, so that a single generate call cannot consume unbounded resources.
+
+#### Acceptance Criteria
+
+1. THE Agent_Config SHALL allow specifying max_tokens_per_llm_call (default: 4,096) to limit the token count of each individual LLM response.
+2. THE Agent_Config SHALL allow specifying max_candidate_length (default: 5,000 characters) and THE Generator_Agent SHALL truncate any candidate that exceeds this limit.
+3. THE Agent_Config SHALL allow specifying max_total_tokens (default: 50,000) as a budget across all LLM calls in a single `generate` invocation. IF the budget is exhausted, THE Generator_Agent SHALL stop the ReAct_Loop and produce candidates with whatever information is available.
+4. THE Agent_Config SHALL allow specifying max_num_candidates (default: 20) and THE Generator_Agent SHALL raise a ValueError if num_candidates exceeds this limit.
+5. WHEN a token budget or output limit is hit, THE Generator_Agent SHALL log a warning with the limit that was reached.
