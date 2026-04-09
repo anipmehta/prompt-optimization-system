@@ -148,3 +148,49 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. WHEN a Tool invocation fails, THE Generator_Agent SHALL log the tool name and error details.
 5. WHEN the Generator_Agent completes candidate generation, THE Generator_Agent SHALL log the number of candidates produced and the total number of ReAct_Loop iterations executed.
 6. THE Generator_Agent SHALL accept an optional logger instance via dependency injection, defaulting to a module-level logger.
+### Requirement 12: Circuit Breaker for Tool Failures
+
+**User Story:** As a developer, I want the Generator_Agent to stop calling a tool that keeps failing, so that the ReAct loop doesn't waste time on broken tools.
+
+#### Acceptance Criteria
+
+1. THE Generator_Agent SHALL track consecutive failure counts per tool across ReAct_Loop iterations within a single `generate` call.
+2. IF a tool fails more than a configurable failure threshold (default: 3 consecutive failures), THEN THE Generator_Agent SHALL mark that tool as tripped and skip it for the remainder of the `generate` call.
+3. WHEN a tripped tool is skipped, THE Generator_Agent SHALL log a warning indicating the tool is circuit-broken and record this in the Observation trace.
+4. THE Agent_Config SHALL allow specifying the circuit breaker failure threshold per tool.
+5. THE Generator_Agent SHALL reset all circuit breaker states at the start of each new `generate` call.
+
+### Requirement 13: Prompt Injection Protection
+
+**User Story:** As a security engineer, I want the Generator_Agent to sanitize inputs before passing them to the LLM, so that malicious task descriptions cannot hijack the agent's behavior.
+
+#### Acceptance Criteria
+
+1. BEFORE passing the Task_Description to the LLM_Client or any tool, THE Generator_Agent SHALL sanitize the input by escaping or removing known prompt injection patterns (e.g., instruction overrides, role reassignment, delimiter escapes).
+2. THE Generator_Agent SHALL reject Task_Descriptions that contain control characters or null bytes, raising a ValueError with a descriptive message.
+3. THE Generator_Agent SHALL enforce a maximum length for Task_Description (configurable via Agent_Config, default: 10,000 characters) and raise a ValueError if exceeded.
+4. THE Generator_Agent SHALL NOT include raw user input directly in system prompts — user input SHALL always be placed in clearly delimited user-content sections.
+5. WHEN a sanitization step modifies the Task_Description, THE Generator_Agent SHALL log a warning with details of what was sanitized.
+
+### Requirement 14: Generation Timeout
+
+**User Story:** As a developer, I want the Generator_Agent to respect a time budget, so that a slow LLM or stuck ReAct loop doesn't block the Orchestrator indefinitely.
+
+#### Acceptance Criteria
+
+1. THE Agent_Config SHALL allow specifying a timeout_seconds for the `generate` call (default: 60 seconds).
+2. IF the `generate` call exceeds timeout_seconds, THEN THE Generator_Agent SHALL stop the ReAct_Loop and produce candidates using whatever information has been gathered so far.
+3. IF no useful information has been gathered when the timeout fires, THEN THE Generator_Agent SHALL raise a TimeoutError with a descriptive message.
+4. THE Generator_Agent SHALL check the elapsed time before each ReAct_Loop iteration and before final candidate generation.
+5. WHEN a timeout occurs, THE Generator_Agent SHALL log a warning including the elapsed time and the number of iterations completed.
+
+### Requirement 15: Input Sanitization for Tools
+
+**User Story:** As a security engineer, I want all inputs passed to tools to be sanitized, so that tool implementations are protected from malformed or malicious data.
+
+#### Acceptance Criteria
+
+1. BEFORE passing any input to a Tool, THE Generator_Agent SHALL validate that the input is a non-empty string and does not contain control characters or null bytes.
+2. THE Generator_Agent SHALL enforce a maximum input length per tool call (configurable via Agent_Config, default: 5,000 characters) and truncate inputs that exceed the limit.
+3. WHEN an input is truncated, THE Generator_Agent SHALL log a warning and record the truncation in the Observation trace.
+4. IF a Tool returns output that exceeds a configurable maximum output length (default: 50,000 characters), THEN THE Generator_Agent SHALL truncate the output before incorporating it into the ReAct_Loop context.
