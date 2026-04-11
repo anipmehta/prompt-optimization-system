@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -12,6 +13,27 @@ if TYPE_CHECKING:
 from llm_toolbox.tool_registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async_in_thread(coro):
+    """Run an async coroutine from sync code, even inside a running event loop."""
+    result = None
+    exception = None
+
+    def _run():
+        nonlocal result, exception
+        try:
+            result = asyncio.run(coro)
+        except Exception as exc:
+            exception = exc
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    thread.join()
+
+    if exception is not None:
+        raise exception
+    return result
 
 
 def _make_analyze_task(llm_client: LLMClient):
@@ -30,9 +52,7 @@ def _make_analyze_task(llm_client: LLMClient):
             },
             {"role": "user", "content": task_description},
         ]
-        response = asyncio.get_event_loop().run_until_complete(
-            llm_client.complete(messages=messages)
-        )
+        response = _run_async_in_thread(llm_client.complete(messages=messages))
         return response.content or "No analysis produced."
 
     return analyze_task
@@ -53,9 +73,7 @@ def _make_refine_candidate(llm_client: LLMClient):
             },
             {"role": "user", "content": draft},
         ]
-        response = asyncio.get_event_loop().run_until_complete(
-            llm_client.complete(messages=messages)
-        )
+        response = _run_async_in_thread(llm_client.complete(messages=messages))
         return response.content or "No refinement produced."
 
     return refine_candidate
