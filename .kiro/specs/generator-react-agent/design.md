@@ -2,105 +2,143 @@
 
 ## Overview
 
-The Generator ReAct Agent is a concrete implementation of the `GeneratorInterface` protocol that uses a ReAct (Reason + Act) loop to produce diverse, high-quality prompt candidates. Rather than making a single LLM call, the agent iteratively reasons about the task, invokes tools to gather context, and synthesizes findings into candidates.
+The Generator ReAct Agent is a thin adapter that implements the Orchestrator's `GeneratorInterface` protocol by delegating to the `llm-toolbox` library's `Agent` class. The llm-toolbox library already provides the async ReAct loop, LLM client with retry/backoff, tool registry with JSON schema generation and argument validation, and structured result models (`AgentResult`, `ReActStep`, etc.).
 
-The agent is injected into the Orchestrator as the `generator` parameter and must satisfy the `GeneratorInterface` protocol — accepting a `task_description` (str) and `num_candidates` (int) and returning `list[str]`.
+This adapter's responsibilities are narrow:
 
-Key design goals:
-- Security-first: Sanitize all inputs before LLM/tool calls; enforce length and token budgets.
-- Resilience: Circuit breakers on tools, graceful degradation, configurable timeouts.
-- Observability: Structured trace of Thought/Action/Observation steps, logging at every decision point.
-- Diversity: Candidates vary across prompting strategies, detail levels, and structures.
+1. Satisfy the `GeneratorInterface` protocol (`generate(task_description, num_candidates) -> list[str]`)
+2. Configure and instantiate an llm-toolbox `Agent` with custom tools and a system prompt
+3. Parse `AgentResult.answer` into a `list[str]` of prompt candidates
+4. Bridge async `agent.run()` to the sync `generate()` contract
+5. Handle timeout, parse failure, and count mismatches
+
+Everything else — the ReAct loop, tool dispatch, LLM retries, backoff, schema validation — is llm-toolbox's job.
 
 ## Architecture
 
 ```mermaid
 graph TD
-    Orch[Orchestrator] -->|"generate(task, n)"| Agent[GeneratorAgent]
-    Agent --> Sanitizer[InputSanitizer]
-    Agent --> Loop[ReAct Loop]
-    Loop --> LLM[LLM Client]
-    Loop --> Router[Tool Router]
-    Router --> TA[TaskAnalyzer]
-    Router --> TR[TemplateRetriever]
-    Router --> ES[ExampleSearcher]
-    Router --> CR[CandidateRefiner]
-    TA --> Loop
-    TR --> Loop
-    ES --> Loop
-    CR --> Loop
-    Router -.-> CB[CircuitBreaker]
-    Agent -->|"list of str"| Orch
+    Orch[Orchestrator] -->|"generate(task, n)"| GA[GeneratorAgent]
+    GA -->|constructs| Agent[llm-toolbox Agent]
+    GA -->|injects| LLM[LLMClient]
+    GA -->|builds| TR[ToolRegistry]
+    TR --> TA[analyze_task]
+    TR --> TPL[retrieve_templates]
+    TR --> ES[search_examples]
+    TR --> CR[refine_candidate]
+    Agent -->|"await run(task)"| AgentResult
+    AgentResult -->|parse answer| GA
+    GA -->|"list[str]"| Orch
 ```
 
-### ReAct Loop Sequence
+### Sequence: generate() call
 
 ```mermaid
 sequenceDiagram
     participant O as Orchestrator
-    participant A as GeneratorAgent
-    participant S as InputSanitizer
-    participant L as LLM Client
-    participant T as Tools
+    participant GA as GeneratorAgent
+    participant A as llm-toolbox Agent
+    participant P as AnswerParser
 
-    O->>A: generate(task_description, num_candidates)
-    A->>S: sanitize(task_description)
-    S-->>A: sanitized_description
-
-    loop ReAct up to max_iterations within timeout
-        A->>L: prompt with context for Thought and Action
-        L-->>A: Thought and chosen Action
-        A->>A: check circuit breaker for tool
-        A->>T: invoke tool with action_input
-        T-->>A: Observation or error
-        A->>A: append to trace and update context
-    end
-
-    A->>L: final generation prompt with gathered context
-    L-->>A: raw candidates
-    A->>A: deduplicate and truncate and validate count
-    A-->>O: list of candidates
+    O->>GA: generate(task_description, num_candidates)
+    GA->>GA: validate inputs
+    GA->>GA: build system prompt from template + num_candidates
+    GA->>A: await agent.run(task_description)
+    A-->>GA: AgentResult
+    GA->>GA: check timed_out
+    GA->>P: parse(answer, num_candidates)
+    P-->>GA: list[str]
+    GA->>GA: deduplicate, truncate/backfill
+    GA-->>O: list[str]
 ```
 
 ### Design Decisions
 
-- Dataclasses + Protocol: Consistent with the orchestrator's approach. No heavy frameworks.
-- Dependency-injected LLM client: The agent never creates its own LLM client — it receives one from llm-toolbox at construction. Tools that need LLM access share the same client.
-- Tools as plain callables in a registry: Each tool has a name, description, and input/output contract. The agent selects tools by name during the Action step. Simple and testable in isolation.
-- Circuit breaker per tool, per generate call: Failure counts reset at the start of each call. Once a tool trips, it is skipped for the remainder of that call.
-- Timeout checked at loop boundaries: Before each iteration and before final generation, elapsed time is checked. This avoids interrupting mid-LLM-call while still enforcing the budget.
-- Sanitization as a separate module: Input sanitization logic is isolated so it can be tested independently and reused.
-- Token tracking via accumulator: A simple counter tracks tokens consumed across all LLM calls in a generate invocation. The LLM client is expected to return token usage metadata.
+| Decision | Rationale |
+|---|---|
+| Thin adapter over llm-toolbox | Avoids reimplementing ReAct loop, retries, tool dispatch. Keeps codebase small and focused. |
+| Dependency-injected LLMClient | GeneratorAgent never creates its own LLMClient. Receives one at construction, passes it to llm-toolbox Agent. Testable with mocks. |
+| Tools as plain functions | Each tool is a regular Python function registered via `ToolRegistry.register_from_function()`. Simple, testable, no class hierarchy needed. |
+| `asyncio.run()` with running-loop detection | The sync `generate()` wraps async `agent.run()`. Detects already-running event loops and falls back to thread-based execution to support Jupyter/async contexts. |
+| Answer parsing with multiple format support | LLMs may format answers as numbered lists, JSON arrays, or delimiter-separated text. Parser tries each format in order. |
+| Dataclass for config | Consistent with orchestrator's approach. Immutable, validated at construction. |
+| No circuit breakers or sanitization modules | llm-toolbox handles tool error recovery and the ReAct loop already handles tool failures gracefully. Input validation is simple ValueError checks. |
 
-## Components
+## Components and Interfaces
 
 ### GeneratorAgent
-The main class implementing GeneratorInterface. Accepts an LLM client, optional AgentConfig, and optional logger via dependency injection. Exposes a single `generate(task_description, num_candidates)` method.
+
+The main class. Implements `GeneratorInterface`.
+
+```python
+class GeneratorAgent:
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        config: AgentConfig | None = None,
+        logger: logging.Logger | None = None,
+    ) -> None: ...
+
+    def generate(self, task_description: str, num_candidates: int) -> list[str]: ...
+```
+
+- Accepts an `LLMClient` (from llm-toolbox) via DI
+- Accepts optional `AgentConfig` (defaults provided)
+- Accepts optional `Logger` (defaults to module-level logger)
+- `generate()` is synchronous — bridges to async internally
 
 ### AgentConfig
-A dataclass holding all configuration. See Data Models section for fields and defaults.
 
-### LLMClientInterface
-A Protocol expected from llm-toolbox. Must expose a `chat(messages, max_tokens)` method returning a response with `content` (str) and `tokens_used` (int).
+Configuration dataclass with sensible defaults.
 
-### ToolInterface
-A Protocol for tools. Each tool has a `name` property, a `description` property, and an `invoke(input_text)` method returning a string.
+```python
+@dataclass(frozen=True)
+class AgentConfig:
+    max_iterations: int = 5
+    enabled_tools: frozenset[str] = frozenset({
+        "analyze_task", "retrieve_templates",
+        "search_examples", "refine_candidate"
+    })
+    system_prompt_template: str = DEFAULT_SYSTEM_PROMPT
+```
 
-### Tool Implementations
-- TaskAnalyzer: Uses LLM client to break down a task description into domain, intent, constraints, and output format.
-- TemplateRetriever: Retrieves relevant prompt templates for a query. Returns empty list if none found.
-- ExampleSearcher: Finds relevant input-output examples for a task type. Returns empty list if none found.
-- CandidateRefiner: Uses LLM client to improve a draft prompt candidate while preserving core intent.
+### Tool Functions
 
-### InputSanitizer
-A module with functions for sanitizing task descriptions (reject control chars/null bytes, strip injection patterns, enforce length), sanitizing tool inputs (validate and truncate), and truncating tool outputs.
+Four plain functions, registered with `ToolRegistry.register_from_function()`:
 
-### CircuitBreaker
-A dataclass tracking consecutive failure counts per tool. Trips a tool after reaching the configured threshold. Exposes `record_failure`, `record_success`, `is_tripped`, and `reset` methods.
+| Function | Signature | Description |
+|---|---|---|
+| `analyze_task` | `(task_description: str) -> str` | Breaks down task into domain, intent, constraints, output format. Uses LLMClient via closure. |
+| `retrieve_templates` | `(query: str) -> str` | Returns relevant prompt templates for the query. Returns "no templates found" if empty. |
+| `search_examples` | `(task_type: str) -> str` | Returns relevant few-shot examples. Returns "no examples found" if empty. |
+| `refine_candidate` | `(draft: str) -> str` | Improves a draft prompt candidate. Uses LLMClient via closure. |
 
-### ReAct Trace Models
-- StepType enum: THOUGHT, ACTION, OBSERVATION
-- TraceStep dataclass: step_type, content, optional tool_name, error flag
+Tools that need LLM access (`analyze_task`, `refine_candidate`) receive the `LLMClient` via closure at registration time — the registered function closes over the client instance.
+
+### Answer Parser
+
+A module-level function (or small set of functions) that extracts individual candidates from `AgentResult.answer`:
+
+```python
+def parse_candidates(answer: str, num_candidates: int) -> list[str]: ...
+```
+
+Parsing strategy (tried in order):
+1. JSON array — `json.loads(answer)` if it looks like `[...]`
+2. Numbered list — regex for `1. ...`, `2. ...` etc.
+3. Delimiter-based — split on `---` or `===`
+4. Fallback — treat entire answer as single candidate
+
+### ToolRegistry Builder
+
+A helper function that builds a `ToolRegistry` with the enabled tools:
+
+```python
+def build_tool_registry(
+    llm_client: LLMClient,
+    enabled_tools: frozenset[str],
+) -> ToolRegistry: ...
+```
 
 ## Data Models
 
@@ -108,174 +146,145 @@ A dataclass tracking consecutive failure counts per tool. Trips a tool after rea
 
 | Field | Type | Default | Validation |
 |---|---|---|---|
-| max_iterations | int | 5 | Must be >= 1 |
-| timeout_seconds | float | 60.0 | Must be > 0 |
-| system_prompt_template | str | DEFAULT_SYSTEM_PROMPT | Non-empty |
-| circuit_breaker_threshold | int | 3 | Must be >= 1 |
-| max_task_description_length | int | 10000 | Must be >= 1 |
-| max_tool_input_length | int | 5000 | Must be >= 1 |
-| max_tool_output_length | int | 50000 | Must be >= 1 |
-| max_tokens_per_llm_call | int | 4096 | Must be >= 1 |
-| max_total_tokens | int | 50000 | Must be >= 1 |
-| max_candidate_length | int | 5000 | Must be >= 1 |
-| max_num_candidates | int | 20 | Must be >= 1 |
+| `max_iterations` | `int` | `5` | Must be >= 1 |
+| `enabled_tools` | `frozenset[str]` | All four tools | Each must be a known tool name |
+| `system_prompt_template` | `str` | `DEFAULT_SYSTEM_PROMPT` | Non-empty after strip |
 
-### TraceStep
+### System Prompt Template
 
-| Field | Type | Description |
-|---|---|---|
-| step_type | StepType | THOUGHT, ACTION, or OBSERVATION |
-| content | str | The text content of this step |
-| tool_name | str or None | Tool name for ACTION/OBSERVATION steps |
-| error | bool | Whether this step represents an error |
+The default system prompt template is a string with `{num_candidates}` placeholder:
+
+```
+You are a prompt engineering expert. Your task is to generate exactly {num_candidates} diverse prompt candidates for the given task.
+
+Use the available tools to analyze the task, find relevant templates and examples, and refine your candidates.
+
+Requirements:
+- Each candidate must be a complete, self-contained prompt
+- Candidates must vary across: instruction style, detail level, use of examples, output format
+- Use tools to gather context before generating candidates
+
+Format your final answer as a numbered list:
+1. [first candidate]
+2. [second candidate]
+...
+```
 
 ### Validation Rules
 
-| Input | Rule |
-|---|---|
-| task_description | Non-empty after strip; no control chars or null bytes; within max_task_description_length |
-| num_candidates | Must be >= 1 and <= max_num_candidates |
-| max_iterations | Must be >= 1 |
-| timeout_seconds | Must be > 0 |
-| Tool input | Non-empty; no control chars or null bytes; truncated to max_tool_input_length |
-| Tool output | Truncated to max_tool_output_length |
-| LLM response tokens | Accumulated; generation stops if max_total_tokens exceeded |
-| Candidate length | Truncated to max_candidate_length |
+| Input | Rule | Error |
+|---|---|---|
+| `task_description` | Non-empty after strip | `ValueError` |
+| `num_candidates` | >= 1 | `ValueError` |
+| `max_iterations` (config) | >= 1 | `ValueError` at construction |
+| `enabled_tools` (config) | Subset of known tool names | `ValueError` at construction |
+| `system_prompt_template` (config) | Non-empty after strip | `ValueError` at construction |
 
-## Functional Requirements
 
-### FR-1: Candidate count guarantee
-The agent SHALL return exactly the requested number of candidates for any valid input.
-Validates: Requirements 1.1, 1.2
+## Correctness Properties
 
-### FR-2: Input validation
-The agent SHALL reject invalid num_candidates (< 1 or > max_num_candidates) and invalid task descriptions (empty, whitespace-only, control characters, null bytes, exceeds max length) with a ValueError.
-Validates: Requirements 1.4, 1.5, 13.2, 13.3, 16.4
+*A property is a characteristic or behavior that should hold true across all valid executions of a system — essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-### FR-3: ReAct trace ordering
-Every Action step in the trace SHALL be immediately preceded by a Thought step and immediately followed by an Observation step.
-Validates: Requirements 2.1, 2.2, 2.3, 2.6
+### Property 1: Candidate count guarantee
 
-### FR-4: Iteration limit enforcement
-The number of Action steps SHALL NOT exceed the configured max_iterations.
-Validates: Requirements 2.5
+*For any* valid task description and any num_candidates >= 1, calling `generate(task_description, num_candidates)` SHALL return a list of exactly `num_candidates` strings.
 
-### FR-5: Candidate uniqueness
-When num_candidates > 1, all returned candidates SHALL be pairwise distinct strings.
-Validates: Requirements 7.3
+**Validates: Requirements 1.1, 1.2, 4.3**
 
-### FR-6: Tool failure handling
-A tool failure SHALL produce exactly one error Observation (no retries) and the loop SHALL continue with remaining tools.
-Validates: Requirements 9.1, 9.4
+### Property 2: Invalid input rejection
 
-### FR-7: Graceful degradation
-If all tools fail, the agent SHALL still produce the requested number of candidates using LLM-only generation.
-Validates: Requirements 9.2
+*For any* num_candidates < 1, `generate()` SHALL raise a `ValueError`. *For any* task description that is empty or composed entirely of whitespace characters, `generate()` SHALL raise a `ValueError`. *For any* `AgentConfig` with `max_iterations` < 1, construction SHALL raise a `ValueError`.
 
-### FR-8: LLM failure propagation
-If the LLM client fails during final candidate generation, the agent SHALL raise an error to the caller.
-Validates: Requirements 9.3
+**Validates: Requirements 1.4, 1.5, 13.3**
 
-### FR-9: Circuit breaker behavior
-A tool SHALL be skipped after reaching the configured consecutive failure threshold within a single generate call. Circuit breaker state SHALL reset between generate calls.
-Validates: Requirements 12.1, 12.2, 12.5
+### Property 3: Parsing round-trip
 
-### FR-10: Prompt injection sanitization
-Known injection patterns SHALL be escaped or removed before passing input to the LLM. Raw user input SHALL never appear in system prompts.
-Validates: Requirements 13.1, 13.4
+*For any* list of N distinct non-empty strings, formatting them as a numbered list and then parsing with `parse_candidates()` SHALL produce the same N strings (after stripping whitespace).
 
-### FR-11: Timeout enforcement
-If elapsed time exceeds timeout_seconds, the ReAct loop SHALL stop and candidates SHALL be produced with available information. If no information was gathered, a TimeoutError SHALL be raised.
-Validates: Requirements 14.2, 14.3
+**Validates: Requirements 4.1, 4.2**
 
-### FR-12: Tool input/output sanitization
-Tool inputs with control characters or null bytes SHALL be rejected. Inputs exceeding max_tool_input_length SHALL be truncated. Tool outputs exceeding max_tool_output_length SHALL be truncated.
-Validates: Requirements 15.1, 15.2, 15.4
+### Property 4: Unparseable answer raises RuntimeError
 
-### FR-13: Candidate length enforcement
-Candidates exceeding max_candidate_length SHALL be truncated.
-Validates: Requirements 16.2
+*For any* `AgentResult` whose `answer` is empty or None, `generate()` SHALL raise a `RuntimeError` with a descriptive message.
 
-### FR-14: Token budget enforcement
-When cumulative tokens across all LLM calls reach max_total_tokens, the ReAct loop SHALL stop and candidates SHALL be produced with available information.
-Validates: Requirements 16.3
+**Validates: Requirements 4.4**
 
-### FR-15: Config validation
-AgentConfig with max_iterations < 1 SHALL be rejected at construction time with a ValueError.
-Validates: Requirements 10.3
+### Property 5: Tool registry respects enabled_tools config
 
-### FR-16: Tool invocation contract
-Each tool SHALL accept a non-empty string input and return a string result. LLM-backed tools SHALL propagate LLM failures.
-Validates: Requirements 3.1, 3.4, 4.1, 5.1, 6.1, 6.3
+*For any* subset of the four known tool names provided as `enabled_tools` in `AgentConfig`, the built `ToolRegistry` SHALL contain exactly those tools and no others.
 
-## Non-Functional Requirements
+**Validates: Requirements 5.3**
 
-### NFR-1: Security
-All user-provided input SHALL be sanitized before reaching the LLM or any tool. The system SHALL defend against prompt injection, control character injection, and resource exhaustion attacks.
-Validates: Requirements 13, 15
+### Property 6: Tool functions return non-empty strings
 
-### NFR-2: Resilience
-The agent SHALL degrade gracefully when tools fail (circuit breaker), when the LLM is slow (timeout), or when token budgets are exhausted. It SHALL always attempt to produce candidates rather than fail silently.
-Validates: Requirements 9, 12, 14, 16
+*For any* valid non-empty string input, each tool function (`analyze_task`, `retrieve_templates`, `search_examples`, `refine_candidate`) SHALL return a non-empty string.
 
-### NFR-3: Observability
-All key events (generate start, thoughts, tool calls, tool failures, circuit breaker trips, sanitization modifications, timeouts, budget exhaustion, completion) SHALL be logged.
-Validates: Requirements 11
+**Validates: Requirements 6.1, 7.1, 8.1, 9.1**
 
-### NFR-4: Configurability
-All limits, thresholds, and templates SHALL be configurable via AgentConfig with sensible defaults.
-Validates: Requirements 10, 14.1, 16.1
+### Property 7: System prompt includes num_candidates
 
-### NFR-5: Testability
-All components (agent, tools, sanitizer, circuit breaker) SHALL be independently testable via dependency injection and Protocol-based interfaces.
-Validates: Requirements 8
+*For any* positive integer num_candidates, the constructed system prompt SHALL contain the string representation of that integer.
+
+**Validates: Requirements 10.1**
+
+### Property 8: Output candidates are stripped and unique
+
+*For any* successful `generate()` call with num_candidates > 1, all returned candidates SHALL have no leading or trailing whitespace, and all candidates SHALL be pairwise distinct.
+
+**Validates: Requirements 11.1, 11.3**
+
+### Property 9: Agent exceptions wrapped in RuntimeError
+
+*For any* exception raised by `agent.run()`, `generate()` SHALL raise a `RuntimeError` whose `__cause__` is the original exception.
+
+**Validates: Requirements 12.3**
 
 ## Error Handling
 
-| Scenario | Behavior |
-|---|---|
-| Empty/whitespace task_description | Raise ValueError |
-| task_description contains control chars or null bytes | Raise ValueError |
-| task_description exceeds max length | Raise ValueError |
-| num_candidates < 1 or > max_num_candidates | Raise ValueError |
-| max_iterations < 1 in config | Raise ValueError at construction |
-| Tool invocation fails | Record error Observation, continue loop |
-| Tool circuit-broken | Skip tool, log warning, record in trace |
-| All tools fail | Fall back to LLM-only generation |
-| LLM fails during ReAct reasoning | Log error, exit loop, attempt final generation |
-| LLM fails during final generation | Raise RuntimeError |
-| Timeout exceeded with context | Exit loop, produce candidates |
-| Timeout exceeded without context | Raise TimeoutError |
-| Token budget exhausted | Exit loop, produce candidates |
-| Tool input contains control chars | Reject input, record error Observation |
-| Tool output exceeds max length | Truncate, log warning |
-| Candidate exceeds max length | Truncate |
-| Sanitization modifies input | Log warning |
-| Duplicate candidates generated | Deduplicate and regenerate to fill count |
-
-### Exception Types
-
-| Exception | When |
-|---|---|
-| ValueError | Invalid inputs: bad task_description, bad num_candidates, bad config |
-| TimeoutError | Generate call exceeds timeout with no useful context gathered |
-| RuntimeError | LLM client fails during final candidate generation |
+| Scenario | Behavior | Exception |
+|---|---|---|
+| Empty/whitespace `task_description` | Raise immediately | `ValueError` |
+| `num_candidates` < 1 | Raise immediately | `ValueError` |
+| `max_iterations` < 1 in config | Raise at construction | `ValueError` |
+| Unknown tool name in `enabled_tools` | Raise at construction | `ValueError` |
+| Empty `system_prompt_template` | Raise at construction | `ValueError` |
+| `AgentResult.timed_out` is True, answer is empty | Raise with iteration count | `TimeoutError` |
+| `AgentResult.timed_out` is True, answer is non-empty | Attempt to parse available candidates | — |
+| `AgentResult.answer` is empty or unparseable | Raise with context | `RuntimeError` |
+| `agent.run()` raises any exception | Wrap and re-raise with context | `RuntimeError` |
+| Parsed count < num_candidates after dedup | Attempt follow-up `agent.run()` for more | — |
+| Parsed count > num_candidates | Truncate to num_candidates | — |
+| Running event loop detected in `generate()` | Fall back to thread-based async execution | — |
 
 ## Testing Strategy
 
+### Property-Based Testing
+
+This feature is well-suited for property-based testing. The core logic involves input validation, parsing, and data transformations with clear universal properties.
+
+- Library: `hypothesis` (already in dev dependencies)
+- Minimum 100 iterations per property test
+- Each property test tagged with: `Feature: generator-react-agent, Property {N}: {title}`
+
 ### Unit Testing
-- All GeneratorAgent tests in a single test_generator_agent.py
-- Separate test files for sanitization, tools, and circuit breaker modules
-- Mock LLM client and tools for isolation
-- No magic strings or numbers — use named constants
-- Follow DRY — shared fixtures in conftest.py
+
+Unit tests cover specific examples, integration wiring, edge cases, and logging:
+
+- Mock `LLMClient` and `Agent` for isolation (never call real LLMs)
+- Mock `Agent.run()` to return controlled `AgentResult` instances
+- Verify logging output with captured log records
+- Test each tool function independently with mocked LLMClient
 
 ### Test Organization
 
 | File | Covers |
 |---|---|
-| test_generator_agent.py | Agent logic, config, logging, edge cases |
-| test_sanitization.py | Input sanitization module |
-| test_tools.py | Individual tool implementations |
-| test_circuit_breaker.py | Circuit breaker logic |
-| conftest.py | Shared fixtures, mock LLM client, mock tools |
+| `test_generator_agent.py` | GeneratorAgent: generate(), config validation, error handling, logging, async bridging |
+| `test_answer_parser.py` | parse_candidates(): all formats, edge cases, round-trip properties |
+| `test_tools.py` | Tool functions: analyze_task, retrieve_templates, search_examples, refine_candidate |
+| `conftest.py` | Shared fixtures: mock LLMClient, mock Agent, sample AgentResults, AgentConfig factories |
+
+### What We Test vs. What We Don't
+
+- We test: GeneratorAgent logic, answer parsing, tool functions, config validation, error handling
+- We don't test: llm-toolbox internals (Agent ReAct loop, ToolRegistry schema generation, LLMClient retry logic)

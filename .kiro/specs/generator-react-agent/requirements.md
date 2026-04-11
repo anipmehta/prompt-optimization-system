@@ -2,27 +2,25 @@
 
 ## Introduction
 
-This document specifies the requirements for the Generator ReAct Agent — a concrete implementation of the `GeneratorInterface` protocol defined in the Prompt Optimization Orchestrator. The agent uses a ReAct (Reason + Act) loop to produce diverse, high-quality prompt candidates for a given task description.
+This document specifies the requirements for the Generator ReAct Agent — a thin adapter that implements the Orchestrator's `GeneratorInterface` protocol by delegating to the `llm-toolbox` library's `Agent` class. The `llm-toolbox` library already provides the ReAct loop, LLM client with retry/backoff, tool registry with schema generation and argument validation, and structured result models. This agent's responsibility is limited to: conforming to `GeneratorInterface`, defining custom tools, crafting a system prompt for diverse candidate generation, parsing `AgentResult` into `list[str]`, and bridging async-to-sync execution.
 
-The ReAct loop follows a Thought → Action → Observation cycle: the agent reasons about the task, invokes tools (task analysis, template retrieval, example search, candidate refinement), observes results, and repeats until it has enough information to produce the requested number of prompt candidates. The agent uses the `llm-toolbox` library for its underlying LLM client.
+The `llm-toolbox` library is installed as a local editable dependency (`pip install -e .`) from a sibling repository.
 
 ## Glossary
 
-- **Generator_Agent**: The ReAct-based agent that implements the `GeneratorInterface` protocol and produces prompt candidates.
-- **ReAct_Loop**: An iterative reasoning cycle consisting of Thought, Action, and Observation steps that the Generator_Agent executes to gather information and refine candidates.
-- **Thought**: A reasoning step in the ReAct_Loop where the Generator_Agent plans its next action based on accumulated context.
-- **Action**: A tool invocation step in the ReAct_Loop where the Generator_Agent calls one of its available tools.
-- **Observation**: The result returned by a tool invocation, which the Generator_Agent incorporates into its reasoning context.
-- **Tool**: A callable function available to the Generator_Agent during the ReAct_Loop (e.g., Task_Analyzer, Template_Retriever, Example_Searcher, Candidate_Refiner).
-- **Task_Analyzer**: A tool that breaks down a Task_Description into structured components such as domain, intent, constraints, and expected output format.
-- **Template_Retriever**: A tool that retrieves relevant prompt templates or patterns based on task characteristics.
-- **Example_Searcher**: A tool that finds relevant examples or few-shot demonstrations for a given task type.
-- **Candidate_Refiner**: A tool that takes a draft prompt candidate and improves it based on specified criteria.
-- **Task_Description**: A natural-language description of the task for which prompts should be optimized (as defined in the Orchestrator).
+- **Generator_Agent**: The adapter class that implements the `GeneratorInterface` protocol and delegates reasoning to the llm-toolbox `Agent`.
+- **GeneratorInterface**: The Protocol defined by the Orchestrator: `generate(task_description: str, num_candidates: int) -> list[str]`.
+- **LLM_Toolbox_Agent**: The `Agent` class from `llm-toolbox` (`src/agent.py`) that executes an async ReAct loop given a name, system_prompt, LLMClient, ToolRegistry, and max_iterations. Returns an `AgentResult`.
+- **AgentResult**: The result model from `llm-toolbox` containing `answer` (str), `reasoning_trace` (list of ReActStep), `iterations` (int), and `timed_out` (bool).
+- **LLMClient**: The unified async LLM client from `llm-toolbox` supporting OpenAI/Anthropic/Groq with retry logic and exponential backoff.
+- **ToolRegistry**: The tool registry from `llm-toolbox` that registers callable functions, auto-generates JSON schemas, validates arguments, and executes tools.
+- **Task_Analyzer**: A custom tool that breaks down a task description into structured components (domain, intent, constraints, expected output format).
+- **Template_Retriever**: A custom tool that retrieves relevant prompt templates or patterns based on task characteristics.
+- **Example_Searcher**: A custom tool that finds relevant examples or few-shot demonstrations for a given task type.
+- **Candidate_Refiner**: A custom tool that takes a draft prompt candidate and improves it based on specified criteria.
+- **Task_Description**: A natural-language description of the task for which prompts should be optimized.
 - **Prompt_Candidate**: A single generated prompt text that is a candidate solution for a given Task_Description.
-- **LLM_Client**: The language model client from the `llm-toolbox` library used by the Generator_Agent for reasoning and generation.
-- **Max_Iterations**: The maximum number of ReAct_Loop cycles the Generator_Agent executes before producing final candidates.
-- **Agent_Config**: Configuration object for the Generator_Agent, including model parameters, max iterations, and tool settings.
+- **Agent_Config**: Configuration dataclass for the Generator_Agent, including max_iterations, tool selection, and system prompt.
 
 ## Requirements
 
@@ -38,171 +36,141 @@ The ReAct loop follows a Thought → Action → Observation cycle: the agent rea
 4. IF num_candidates is less than 1, THEN THE Generator_Agent SHALL raise a ValueError with a descriptive message.
 5. IF the Task_Description is empty or contains only whitespace, THEN THE Generator_Agent SHALL raise a ValueError with a descriptive message.
 
-### Requirement 2: Execute the ReAct Reasoning Loop [P0]
+### Requirement 2: Delegate to llm-toolbox Agent [P0]
 
-**User Story:** As a prompt engineer, I want the Generator_Agent to reason iteratively about the task before generating candidates, so that the resulting prompts are well-informed and high quality.
+**User Story:** As a developer, I want the Generator_Agent to delegate all ReAct loop execution to the llm-toolbox Agent class, so that the codebase stays thin and avoids reimplementing loop mechanics, retries, or tool dispatch.
 
 #### Acceptance Criteria
 
-1. WHEN `generate` is called, THE Generator_Agent SHALL execute a ReAct_Loop consisting of Thought, Action, and Observation steps.
-2. WHILE the ReAct_Loop is active, THE Generator_Agent SHALL produce a Thought step before each Action step, documenting its reasoning for the chosen action.
-3. WHEN the Generator_Agent invokes a Tool during an Action step, THE Generator_Agent SHALL record the Observation returned by the Tool.
-4. WHEN the Generator_Agent determines it has gathered sufficient information, THE Generator_Agent SHALL exit the ReAct_Loop and proceed to candidate generation.
-5. IF the ReAct_Loop reaches the Max_Iterations limit, THEN THE Generator_Agent SHALL exit the loop and produce candidates using whatever information has been gathered so far.
-6. THE Generator_Agent SHALL maintain an ordered trace of all Thought, Action, and Observation steps for the duration of a single `generate` call.
+1. WHEN `generate` is called, THE Generator_Agent SHALL instantiate or reuse an LLM_Toolbox_Agent configured with the appropriate system prompt, LLMClient, ToolRegistry, and max_iterations.
+2. THE Generator_Agent SHALL call `await agent.run(task_description)` on the LLM_Toolbox_Agent to execute the ReAct loop.
+3. THE Generator_Agent SHALL NOT implement its own ReAct loop, tool dispatch, retry logic, or backoff — these are provided by llm-toolbox.
+4. THE Generator_Agent SHALL accept an LLMClient instance via dependency injection at construction time and pass it to the LLM_Toolbox_Agent.
+5. THE Generator_Agent SHALL NOT instantiate its own LLMClient internally.
 
-### Requirement 3: Provide Task Analysis Tool [P1]
+### Requirement 3: Bridge Async-to-Sync Execution [P0]
+
+**User Story:** As the Orchestrator, I want to call `generate()` synchronously, so that the sync GeneratorInterface contract is satisfied even though llm-toolbox's Agent.run is async.
+
+#### Acceptance Criteria
+
+1. THE Generator_Agent SHALL wrap the async `agent.run()` call in a synchronous `generate()` method using `asyncio.run()` or an equivalent mechanism.
+2. IF an event loop is already running (e.g., in a Jupyter notebook or async context), THEN THE Generator_Agent SHALL detect this and use an appropriate fallback (e.g., `nest_asyncio` or thread-based execution) to avoid a RuntimeError.
+3. THE Generator_Agent SHALL propagate any exceptions raised by the async `agent.run()` call to the synchronous caller without swallowing them.
+
+### Requirement 4: Parse AgentResult into Candidate List [P0]
+
+**User Story:** As the Orchestrator, I want the Generator_Agent to parse the AgentResult.answer into a structured list of prompt candidates, so that the output conforms to the GeneratorInterface contract.
+
+#### Acceptance Criteria
+
+1. WHEN the LLM_Toolbox_Agent returns an AgentResult, THE Generator_Agent SHALL parse the `answer` field into a list of individual Prompt_Candidates.
+2. THE Generator_Agent SHALL support parsing candidates from the answer when they are formatted as a numbered list, a JSON array, or delimited by a known separator.
+3. IF the parsed candidate count does not match num_candidates, THEN THE Generator_Agent SHALL either truncate (if too many) or request additional candidates (via a follow-up agent.run call) to meet the exact count.
+4. IF the AgentResult.answer is empty or cannot be parsed into any candidates, THEN THE Generator_Agent SHALL raise a RuntimeError with a descriptive message.
+
+### Requirement 5: Register Custom Tools with ToolRegistry [P0]
+
+**User Story:** As a developer, I want the Generator_Agent to register its custom tools with llm-toolbox's ToolRegistry, so that the Agent can discover and invoke them during the ReAct loop.
+
+#### Acceptance Criteria
+
+1. THE Generator_Agent SHALL create a ToolRegistry instance and register the Task_Analyzer, Template_Retriever, Example_Searcher, and Candidate_Refiner tools using `register_from_function()` or `register()`.
+2. WHEN the LLM_Toolbox_Agent is instantiated, THE Generator_Agent SHALL pass the populated ToolRegistry to it.
+3. THE Agent_Config SHALL allow specifying which tools to enable, so that tools can be selectively included or excluded.
+4. IF no tools are enabled in the Agent_Config, THEN THE Generator_Agent SHALL still function by relying on the LLM_Toolbox_Agent's reasoning without tool calls.
+
+### Requirement 6: Provide Task Analysis Tool [P1]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to analyze the task description, so that it understands the domain, intent, and constraints before generating prompts.
 
 #### Acceptance Criteria
 
-1. THE Task_Analyzer tool SHALL accept a Task_Description and return a structured analysis containing the task domain, intent, constraints, and expected output format.
-2. WHEN the Generator_Agent invokes the Task_Analyzer, THE Task_Analyzer SHALL use the LLM_Client to produce the analysis.
-3. IF the Task_Description is ambiguous, THEN THE Task_Analyzer SHALL return its best interpretation along with a confidence indicator.
-4. IF the LLM_Client call fails during task analysis, THEN THE Task_Analyzer SHALL raise an error that the Generator_Agent can handle in its ReAct_Loop.
+1. THE Task_Analyzer tool SHALL accept a Task_Description (str) and return a structured analysis (str) containing the task domain, intent, constraints, and expected output format.
+2. THE Task_Analyzer SHALL be implemented as a callable function compatible with ToolRegistry's `register_from_function()`.
+3. WHEN the Task_Analyzer uses the LLMClient for analysis, THE Task_Analyzer SHALL accept the LLMClient via closure or partial application at registration time.
 
-### Requirement 4: Provide Template Retrieval Tool [P2]
+### Requirement 7: Provide Template Retrieval Tool [P2]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to retrieve relevant prompt templates, so that generated candidates follow proven patterns.
 
 #### Acceptance Criteria
 
-1. THE Template_Retriever tool SHALL accept a query describing the task characteristics and return a list of relevant prompt templates.
-2. WHEN no matching templates are found, THE Template_Retriever SHALL return an empty list.
-3. THE Template_Retriever SHALL return templates ranked by relevance to the query.
+1. THE Template_Retriever tool SHALL accept a query (str) describing the task characteristics and return a string containing relevant prompt templates.
+2. WHEN no matching templates are found, THE Template_Retriever SHALL return a message indicating no templates were found.
 
-### Requirement 5: Provide Example Search Tool [P2]
+### Requirement 8: Provide Example Search Tool [P2]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to find relevant examples for the task, so that generated prompts can include effective few-shot demonstrations.
 
 #### Acceptance Criteria
 
-1. THE Example_Searcher tool SHALL accept a task type description and return a list of relevant input-output examples.
-2. WHEN no matching examples are found, THE Example_Searcher SHALL return an empty list.
-3. THE Example_Searcher SHALL return examples ranked by relevance to the task type.
+1. THE Example_Searcher tool SHALL accept a task type description (str) and return a string containing relevant input-output examples.
+2. WHEN no matching examples are found, THE Example_Searcher SHALL return a message indicating no examples were found.
 
-### Requirement 6: Provide Candidate Refinement Tool [P1]
+### Requirement 9: Provide Candidate Refinement Tool [P1]
 
 **User Story:** As a prompt engineer, I want the Generator_Agent to refine draft prompt candidates, so that the final candidates are polished and effective.
 
 #### Acceptance Criteria
 
-1. THE Candidate_Refiner tool SHALL accept a draft Prompt_Candidate and refinement criteria and return an improved Prompt_Candidate.
-2. WHEN the Generator_Agent invokes the Candidate_Refiner, THE Candidate_Refiner SHALL use the LLM_Client to improve the draft candidate.
-3. IF the LLM_Client call fails during refinement, THEN THE Candidate_Refiner SHALL raise an error that the Generator_Agent can handle in its ReAct_Loop.
-4. THE Candidate_Refiner SHALL preserve the core intent of the original draft while improving clarity, specificity, and effectiveness.
+1. THE Candidate_Refiner tool SHALL accept a draft Prompt_Candidate (str) and return an improved Prompt_Candidate (str).
+2. WHEN the Candidate_Refiner uses the LLMClient for refinement, THE Candidate_Refiner SHALL accept the LLMClient via closure or partial application at registration time.
+3. THE Candidate_Refiner SHALL preserve the core intent of the original draft while improving clarity, specificity, and effectiveness.
 
-### Requirement 7: Produce Diverse Prompt Candidates [P1]
+### Requirement 10: Design System Prompt for Diverse Candidate Generation [P0]
 
-**User Story:** As a prompt engineer, I want the generated prompt candidates to be diverse, so that the RL Selector has meaningfully different options to choose from.
-
-#### Acceptance Criteria
-
-1. WHEN the Generator_Agent produces the final list of Prompt_Candidates, THE Generator_Agent SHALL ensure that each candidate uses a distinct prompting strategy or structure.
-2. THE Generator_Agent SHALL produce candidates that vary across dimensions such as instruction style, level of detail, use of examples, and output format specification.
-3. IF num_candidates is greater than 1, THEN THE Generator_Agent SHALL verify that no two returned Prompt_Candidates are identical strings.
-
-### Requirement 8: Integrate with llm-toolbox LLM Client [P0]
-
-**User Story:** As a developer, I want the Generator_Agent to use the llm-toolbox library for LLM calls, so that it shares the same LLM infrastructure as the rest of the system.
+**User Story:** As a prompt engineer, I want the system prompt to instruct the LLM_Toolbox_Agent to generate diverse prompt candidates, so that the Selector has meaningfully different options to choose from.
 
 #### Acceptance Criteria
 
-1. THE Generator_Agent SHALL accept an LLM_Client instance from the `llm-toolbox` library via dependency injection at construction time.
-2. THE Generator_Agent SHALL use the injected LLM_Client for all LLM calls during the ReAct_Loop and candidate generation.
-3. THE Generator_Agent SHALL not instantiate its own LLM_Client internally.
+1. THE Generator_Agent SHALL construct a system prompt that instructs the LLM_Toolbox_Agent to produce exactly num_candidates diverse Prompt_Candidates for the given Task_Description.
+2. THE system prompt SHALL instruct the LLM_Toolbox_Agent to vary candidates across dimensions such as instruction style, level of detail, use of examples, and output format specification.
+3. THE system prompt SHALL instruct the LLM_Toolbox_Agent to use the available tools (Task_Analyzer, Template_Retriever, Example_Searcher, Candidate_Refiner) to gather context before generating candidates.
+4. THE system prompt SHALL instruct the LLM_Toolbox_Agent to format its final answer as a parseable list (e.g., numbered list or JSON array) so that the Generator_Agent can extract individual candidates.
+5. THE Agent_Config SHALL allow overriding the default system prompt template.
 
-### Requirement 9: Handle Errors Gracefully in the ReAct Loop [P0]
+### Requirement 11: Ensure Candidate Diversity and Uniqueness [P1]
 
-**User Story:** As a prompt engineer, I want the Generator_Agent to handle tool failures gracefully, so that a single tool error does not prevent candidate generation.
-
-#### Acceptance Criteria
-
-1. IF a Tool invocation fails during the ReAct_Loop, THEN THE Generator_Agent SHALL record the error as an Observation and continue reasoning with the remaining tools.
-2. IF all Tool invocations fail during the ReAct_Loop, THEN THE Generator_Agent SHALL fall back to generating candidates using only the original Task_Description and the LLM_Client.
-3. IF the LLM_Client fails during final candidate generation, THEN THE Generator_Agent SHALL raise an error to the caller.
-4. THE Generator_Agent SHALL not retry failed Tool invocations within the ReAct_Loop (retries are handled at the Orchestrator level).
-
-### Requirement 10: Support Agent Configuration [P1]
-
-**User Story:** As a developer, I want to configure the Generator_Agent's behavior, so that I can tune the ReAct loop depth and generation parameters.
+**User Story:** As a prompt engineer, I want the generated prompt candidates to be diverse, so that the Selector has meaningfully different options to choose from.
 
 #### Acceptance Criteria
 
-1. THE Generator_Agent SHALL accept an Agent_Config at construction time specifying Max_Iterations for the ReAct_Loop.
-2. THE Agent_Config SHALL have a default Max_Iterations value of 5.
-3. IF Max_Iterations is less than 1, THEN THE Generator_Agent SHALL raise a ValueError at construction time.
-4. THE Agent_Config SHALL allow specifying a system prompt template used for the LLM_Client during the ReAct_Loop.
-5. THE Agent_Config SHALL have a sensible default system prompt template that instructs the LLM to follow the ReAct pattern.
+1. WHEN the Generator_Agent produces the final list of Prompt_Candidates, THE Generator_Agent SHALL verify that no two candidates are identical strings.
+2. IF duplicate candidates are detected, THEN THE Generator_Agent SHALL deduplicate them and attempt to generate replacements to meet the requested num_candidates count.
+3. THE Generator_Agent SHALL strip leading and trailing whitespace from each candidate before performing uniqueness checks.
 
-### Requirement 11: Observability and Logging [P1]
+### Requirement 12: Handle Agent Timeout and Failure [P0]
 
-**User Story:** As a developer, I want the Generator_Agent to log key events during generation, so that I can debug issues and understand the agent's reasoning process.
+**User Story:** As a developer, I want the Generator_Agent to handle cases where the llm-toolbox Agent times out or fails, so that the Orchestrator receives a clear error.
 
 #### Acceptance Criteria
 
-1. WHEN a `generate` call begins, THE Generator_Agent SHALL log the Task_Description and num_candidates.
-2. WHEN the Generator_Agent produces a Thought step, THE Generator_Agent SHALL log the thought content.
-3. WHEN the Generator_Agent invokes a Tool, THE Generator_Agent SHALL log the tool name and input parameters.
-4. WHEN a Tool invocation fails, THE Generator_Agent SHALL log the tool name and error details.
-5. WHEN the Generator_Agent completes candidate generation, THE Generator_Agent SHALL log the number of candidates produced and the total number of ReAct_Loop iterations executed.
-6. THE Generator_Agent SHALL accept an optional logger instance via dependency injection, defaulting to a module-level logger.
-### Requirement 12: Circuit Breaker for Tool Failures [P0]
+1. IF the AgentResult.timed_out field is True and the AgentResult.answer is empty, THEN THE Generator_Agent SHALL raise a TimeoutError with a descriptive message including the number of iterations completed.
+2. IF the AgentResult.timed_out field is True and the AgentResult.answer is non-empty, THEN THE Generator_Agent SHALL attempt to parse whatever candidates are available from the answer.
+3. IF the LLM_Toolbox_Agent raises an exception during `agent.run()`, THEN THE Generator_Agent SHALL propagate the exception to the caller wrapped in a RuntimeError with context about the failure.
 
-**User Story:** As a developer, I want the Generator_Agent to stop calling a tool that keeps failing, so that the ReAct loop doesn't waste time on broken tools.
+### Requirement 13: Support Agent Configuration [P1]
+
+**User Story:** As a developer, I want to configure the Generator_Agent's behavior, so that I can tune the agent's max iterations, tool selection, and system prompt.
 
 #### Acceptance Criteria
 
-1. THE Generator_Agent SHALL track consecutive failure counts per tool across ReAct_Loop iterations within a single `generate` call.
-2. IF a tool fails more than a configurable failure threshold (default: 3 consecutive failures), THEN THE Generator_Agent SHALL mark that tool as tripped and skip it for the remainder of the `generate` call.
-3. WHEN a tripped tool is skipped, THE Generator_Agent SHALL log a warning indicating the tool is circuit-broken and record this in the Observation trace.
-4. THE Agent_Config SHALL allow specifying the circuit breaker failure threshold per tool.
-5. THE Generator_Agent SHALL reset all circuit breaker states at the start of each new `generate` call.
+1. THE Generator_Agent SHALL accept an Agent_Config at construction time.
+2. THE Agent_Config SHALL specify max_iterations for the LLM_Toolbox_Agent (default: 5).
+3. IF max_iterations is less than 1, THEN THE Generator_Agent SHALL raise a ValueError at construction time.
+4. THE Agent_Config SHALL specify which tools to enable (default: all four tools enabled).
+5. THE Agent_Config SHALL specify an optional custom system prompt template (default: a built-in template optimized for diverse candidate generation).
+6. THE Agent_Config SHALL have sensible defaults so that the Generator_Agent can be constructed with only an LLMClient.
 
-### Requirement 13: Prompt Injection Protection [P0]
+### Requirement 14: Observability and Logging [P1]
 
-**User Story:** As a security engineer, I want the Generator_Agent to sanitize inputs before passing them to the LLM, so that malicious task descriptions cannot hijack the agent's behavior.
-
-#### Acceptance Criteria
-
-1. BEFORE passing the Task_Description to the LLM_Client or any tool, THE Generator_Agent SHALL sanitize the input by escaping or removing known prompt injection patterns (e.g., instruction overrides, role reassignment, delimiter escapes).
-2. THE Generator_Agent SHALL reject Task_Descriptions that contain control characters or null bytes, raising a ValueError with a descriptive message.
-3. THE Generator_Agent SHALL enforce a maximum length for Task_Description (configurable via Agent_Config, default: 10,000 characters) and raise a ValueError if exceeded.
-4. THE Generator_Agent SHALL NOT include raw user input directly in system prompts — user input SHALL always be placed in clearly delimited user-content sections.
-5. WHEN a sanitization step modifies the Task_Description, THE Generator_Agent SHALL log a warning with details of what was sanitized.
-
-### Requirement 14: Generation Timeout [P0]
-
-**User Story:** As a developer, I want the Generator_Agent to respect a time budget, so that a slow LLM or stuck ReAct loop doesn't block the Orchestrator indefinitely.
+**User Story:** As a developer, I want the Generator_Agent to log key events, so that I can debug issues and understand the agent's behavior.
 
 #### Acceptance Criteria
 
-1. THE Agent_Config SHALL allow specifying a timeout_seconds for the `generate` call (default: 60 seconds).
-2. IF the `generate` call exceeds timeout_seconds, THEN THE Generator_Agent SHALL stop the ReAct_Loop and produce candidates using whatever information has been gathered so far.
-3. IF no useful information has been gathered when the timeout fires, THEN THE Generator_Agent SHALL raise a TimeoutError with a descriptive message.
-4. THE Generator_Agent SHALL check the elapsed time before each ReAct_Loop iteration and before final candidate generation.
-5. WHEN a timeout occurs, THE Generator_Agent SHALL log a warning including the elapsed time and the number of iterations completed.
-
-### Requirement 15: Input Sanitization for Tools [P0]
-
-**User Story:** As a security engineer, I want all inputs passed to tools to be sanitized, so that tool implementations are protected from malformed or malicious data.
-
-#### Acceptance Criteria
-
-1. BEFORE passing any input to a Tool, THE Generator_Agent SHALL validate that the input is a non-empty string and does not contain control characters or null bytes.
-2. THE Generator_Agent SHALL enforce a maximum input length per tool call (configurable via Agent_Config, default: 5,000 characters) and truncate inputs that exceed the limit.
-3. WHEN an input is truncated, THE Generator_Agent SHALL log a warning and record the truncation in the Observation trace.
-4. IF a Tool returns output that exceeds a configurable maximum output length (default: 50,000 characters), THEN THE Generator_Agent SHALL truncate the output before incorporating it into the ReAct_Loop context.
-
-### Requirement 16: Output and Token Guardrails [P0]
-
-**User Story:** As a developer, I want the Generator_Agent to cap LLM output size and token usage, so that a single generate call cannot consume unbounded resources.
-
-#### Acceptance Criteria
-
-1. THE Agent_Config SHALL allow specifying max_tokens_per_llm_call (default: 4,096) to limit the token count of each individual LLM response.
-2. THE Agent_Config SHALL allow specifying max_candidate_length (default: 5,000 characters) and THE Generator_Agent SHALL truncate any candidate that exceeds this limit.
-3. THE Agent_Config SHALL allow specifying max_total_tokens (default: 50,000) as a budget across all LLM calls in a single `generate` invocation. IF the budget is exhausted, THE Generator_Agent SHALL stop the ReAct_Loop and produce candidates with whatever information is available.
-4. THE Agent_Config SHALL allow specifying max_num_candidates (default: 20) and THE Generator_Agent SHALL raise a ValueError if num_candidates exceeds this limit.
-5. WHEN a token budget or output limit is hit, THE Generator_Agent SHALL log a warning with the limit that was reached.
+1. WHEN a `generate` call begins, THE Generator_Agent SHALL log the Task_Description length and num_candidates requested.
+2. WHEN the LLM_Toolbox_Agent completes, THE Generator_Agent SHALL log the number of iterations executed and whether the agent timed out.
+3. WHEN candidate parsing completes, THE Generator_Agent SHALL log the number of candidates parsed and the number returned.
+4. IF an error occurs during generation, THE Generator_Agent SHALL log the error details before raising the exception.
+5. THE Generator_Agent SHALL accept an optional logger instance via dependency injection, defaulting to a module-level logger.
