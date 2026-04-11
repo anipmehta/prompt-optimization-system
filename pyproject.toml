@@ -7,7 +7,9 @@ name = "prompt-optimization-orchestrator"
 version = "0.1.0"
 description = "Coordination layer for prompt optimization using RL-based selection"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "llm-toolbox",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -35,8 +37,11 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.coverage.run]
-source = ["src/prompt_optimization_orchestrator"]
+source = ["src/prompt_optimization_orchestrator", "src/generator_react_agent"]
 branch = true
 
 [tool.coverage.report]

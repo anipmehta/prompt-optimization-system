@@ -6,14 +6,14 @@ Implement the Generator ReAct Agent as a thin Python adapter over llm-toolbox's 
 
 ## Tasks
 
-- [ ] 1. Create package structure, config, and answer parser
-  - [ ] 1.1 Create `src/generator_react_agent/` package with `__init__.py` and module stubs
+- [x] 1. Create package structure, config, and answer parser
+  - [x] 1.1 Create `src/generator_react_agent/` package with `__init__.py` and module stubs
     - Create `src/generator_react_agent/__init__.py`
     - Create empty module files: `config.py`, `parser.py`, `tools.py`, `agent.py`
     - Update `pyproject.toml` to add the `generator_react_agent` package (add to packages, update coverage source)
     - _Requirements: 13.1, 13.6_
 
-  - [ ] 1.2 Implement `AgentConfig` dataclass in `config.py`
+  - [x] 1.2 Implement `AgentConfig` dataclass in `config.py`
     - Define `AgentConfig` frozen dataclass with `max_iterations`, `enabled_tools`, `system_prompt_template`
     - Implement `__post_init__` validation: `max_iterations >= 1`, `enabled_tools` subset of known names, `system_prompt_template` non-empty after strip
     - Define `DEFAULT_SYSTEM_PROMPT` constant with `{num_candidates}` placeholder
@@ -25,7 +25,7 @@ Implement the Generator ReAct Agent as a thin Python adapter over llm-toolbox's 
     - Test that `max_iterations < 1` raises `ValueError`, unknown tool names raise `ValueError`, empty `system_prompt_template` raises `ValueError`
     - **Validates: Requirements 13.3**
 
-  - [ ] 1.4 Implement `parse_candidates()` in `parser.py`
+  - [x] 1.4 Implement `parse_candidates()` in `parser.py`
     - Implement JSON array parsing (try `json.loads` if answer looks like `[...]`)
     - Implement numbered list parsing (regex for `1. ...`, `2. ...`)
     - Implement delimiter-based parsing (split on `---` or `===`)
@@ -43,18 +43,18 @@ Implement the Generator ReAct Agent as a thin Python adapter over llm-toolbox's 
     - For empty or None-like answer strings, verify `RuntimeError` is raised
     - **Validates: Requirements 4.4**
 
-- [ ] 2. Checkpoint - Ensure all tests pass
+- [x] 2. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 3. Implement tool functions and tool registry builder
-  - [ ] 3.1 Implement tool functions in `tools.py`
+- [x] 3. Implement tool functions and tool registry builder
+  - [x] 3.1 Implement tool functions in `tools.py`
     - Implement `analyze_task(task_description: str) -> str` — uses LLMClient via closure to break down task
     - Implement `retrieve_templates(query: str) -> str` — returns relevant templates or "no templates found"
     - Implement `search_examples(task_type: str) -> str` — returns relevant examples or "no examples found"
     - Implement `refine_candidate(draft: str) -> str` — uses LLMClient via closure to improve a draft
     - _Requirements: 6.1, 6.2, 6.3, 7.1, 7.2, 8.1, 8.2, 9.1, 9.2, 9.3_
 
-  - [ ] 3.2 Implement `build_tool_registry()` in `tools.py`
+  - [x] 3.2 Implement `build_tool_registry()` in `tools.py`
     - Accept `llm_client` and `enabled_tools` frozenset
     - Register only the tools whose names are in `enabled_tools`
     - Use `ToolRegistry.register_from_function()` for each tool
@@ -71,17 +71,17 @@ Implement the Generator ReAct Agent as a thin Python adapter over llm-toolbox's 
     - For any valid non-empty string input, each tool function returns a non-empty string (with mocked LLMClient)
     - **Validates: Requirements 6.1, 7.1, 8.1, 9.1**
 
-- [ ] 4. Checkpoint - Ensure all tests pass
+- [x] 4. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 5. Implement GeneratorAgent class
-  - [ ] 5.1 Implement `GeneratorAgent.__init__()` in `agent.py`
+- [x] 5. Implement GeneratorAgent class
+  - [x] 5.1 Implement `GeneratorAgent.__init__()` in `agent.py`
     - Accept `llm_client: LLMClient` (required), `config: AgentConfig | None` (optional), `logger: logging.Logger | None` (optional)
     - Store config (default to `AgentConfig()` if None), store logger (default to module-level logger)
     - Do NOT instantiate LLMClient internally — only accept via DI
     - _Requirements: 2.4, 2.5, 13.1, 13.6, 14.5_
 
-  - [ ] 5.2 Implement `GeneratorAgent.generate()` in `agent.py`
+  - [x] 5.2 Implement `GeneratorAgent.generate()` in `agent.py`
     - Validate `task_description` (non-empty after strip) and `num_candidates` (>= 1), raise `ValueError` if invalid
     - Build system prompt from template with `num_candidates` substituted
     - Build `ToolRegistry` via `build_tool_registry()`
@@ -119,15 +119,15 @@ Implement the Generator ReAct Agent as a thin Python adapter over llm-toolbox's 
     - For any exception raised by `agent.run()`, `generate()` raises `RuntimeError` whose `__cause__` is the original exception
     - **Validates: Requirements 12.3**
 
-- [ ] 6. Checkpoint - Ensure all tests pass
+- [x] 6. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [ ] 7. Wire up exports and create test fixtures
-  - [ ] 7.1 Wire up `__init__.py` exports
+- [x] 7. Wire up exports and create test fixtures
+  - [x] 7.1 Wire up `__init__.py` exports
     - Export `GeneratorAgent`, `AgentConfig`, `parse_candidates`, `build_tool_registry`, `DEFAULT_SYSTEM_PROMPT`
     - _Requirements: 1.3_
 
-  - [ ] 7.2 Create `tests/test_generator_agent.py` with shared fixtures and unit tests
+  - [x] 7.2 Create `tests/test_generator_agent.py` with shared fixtures and unit tests
     - Create mock `LLMClient` fixture, mock `Agent` fixture, sample `AgentResult` factories
     - Write unit tests for: happy-path generate, config defaults, ValueError on bad inputs, TimeoutError on timed-out result, RuntimeError on empty answer, RuntimeError wrapping agent exceptions, logging verification
     - _Requirements: 1.1, 1.2, 1.4, 1.5, 2.1, 2.4, 2.5, 12.1, 12.2, 12.3, 14.1, 14.2, 14.3, 14.4, 14.5_
@@ -144,7 +144,7 @@ Implement the Generator ReAct Agent as a thin Python adapter over llm-toolbox's 
     - Add to `tests/test_generator_agent.py`
     - _Requirements: 6.1, 7.1, 7.2, 8.1, 8.2, 9.1_
 
-- [ ] 8. Final checkpoint - Ensure all tests pass
+- [x] 8. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
