@@ -6,7 +6,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
 
 ## Tasks
 
-- [-] 1. Set up project structure, exceptions, and data models
+- [x] 1. Set up project structure, exceptions, and data models
   - [x] 1.1 Create project directory structure and `__init__.py` files
     - Create `src/prompt_optimization_orchestrator/` package
     - Create `tests/` directory with `conftest.py`
@@ -20,11 +20,11 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Create `models.py` with `IterationStatus`, `RunStatus`, `OptimizationConfig`, `IterationResult`, `OptimizationRun`, `OptimizationResult` dataclasses
     - _Requirements: 1.1, 1.3, 6.2, 6.5_
 
-  - [-] 1.4 Implement component interfaces (Protocols)
+  - [x] 1.4 Implement component interfaces (Protocols)
     - Create `interfaces.py` with `GeneratorInterface`, `SelectorInterface`, `EvaluatorInterface` Protocol classes
     - _Requirements: 8.1, 8.2, 8.3_
 
-- [-] 2. Implement validation and run initialization
+- [x] 2. Implement validation and run initialization
   - [x] 2.1 Implement input validation functions
     - Validate `task_description` is non-empty after stripping whitespace
     - Validate `OptimizationConfig` fields: `num_candidates > 0`, `num_iterations > 0`, `retry_limit >= 0`
@@ -39,7 +39,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 3: Invalid config values are rejected**
     - **Validates: Requirements 1.3, 1.5**
 
-  - [-] 2.4 Implement `start_run` method on Orchestrator
+  - [x] 2.4 Implement `start_run` method on Orchestrator
     - Create `orchestrator.py` with `Orchestrator` class
     - Accept Generator, Selector, Evaluator via constructor (dependency injection)
     - `start_run` validates inputs, creates `OptimizationRun` with unique `run_id`, stores it, returns `run_id`
@@ -49,11 +49,11 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 1: Run creation produces unique identifiers**
     - **Validates: Requirements 1.1**
 
-- [ ] 3. Checkpoint - Ensure all tests pass
+- [x] 3. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [-] 4. Implement iteration lifecycle — generate, select, evaluate, reward
-  - [-] 4.1 Implement candidate generation step with retry logic
+- [x] 4. Implement iteration lifecycle — generate, select, evaluate, reward
+  - [x] 4.1 Implement candidate generation step with retry logic
     - Call Generator with `task_description` and `num_candidates`
     - Validate returned candidate count; log warning if fewer than requested
     - Mark iteration as FAILED if zero candidates returned
@@ -72,7 +72,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Retry on failure up to `retry_limit`
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [-] 4.4 Implement reward feedback step
+  - [x] 4.4 Implement reward feedback step
     - Send evaluation score to Selector's `reward` method
     - On success, mark iteration as COMPLETE
     - On failure, log the failure and mark iteration as DEGRADED, continue to next iteration
@@ -98,7 +98,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 8: Successful iteration completeness**
     - **Validates: Requirements 5.2, 6.2**
 
-- [ ] 5. Checkpoint - Ensure all tests pass
+- [x] 5. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 - [x] 6. Implement run execution, abort logic, and results
@@ -140,10 +140,10 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 13: Run lookup returns current state**
     - **Validates: Requirements 7.3**
 
-- [ ] 7. Checkpoint - Ensure all tests pass
+- [x] 7. Checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
-- [-] 8. Implement observability, serialization, and final wiring
+- [x] 8. Implement observability, serialization, and final wiring
   - [x] 8.1 Implement logging throughout the Orchestrator
     - Log run start with run_id, task_description, config
     - Log iteration start with iteration number and run_id
@@ -151,7 +151,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Log run completion/abort with final status and summary
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-  - [-] 8.2 Implement serialization module
+  - [x] 8.2 Implement serialization module
     - Create `serialization.py` with `serialize_run` and `deserialize_run` functions
     - Handle dataclass-to-JSON and JSON-to-dataclass conversion including enums
     - Validate JSON structure on deserialization; raise `DeserializationError` for malformed input
@@ -161,12 +161,12 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - **Property 14: Serialization round-trip**
     - **Validates: Requirements 10.1, 10.2, 10.3**
 
-  - [-] 8.4 Wire up package exports in `__init__.py`
+  - [x] 8.4 Wire up package exports in `__init__.py`
     - Export all public classes, interfaces, functions, and exceptions
     - _Requirements: 8.1, 8.2, 8.3, 8.4_
 
-- [ ] 9. Implement shared test fixtures and unit tests
-  - [ ] 9.1 Create `conftest.py` with mock components and shared fixtures
+- [x] 9. Implement shared test fixtures and unit tests
+  - [x] 9.1 Create `conftest.py` with mock components and shared fixtures
     - Mock `GeneratorInterface`, `SelectorInterface`, `EvaluatorInterface`
     - Create fixture for a default `OptimizationConfig`
     - Create fixture for a pre-built `Orchestrator` with mocks
@@ -187,7 +187,7 @@ Implement the Prompt Optimization Orchestrator as a Python library using datacla
     - Capture log output and assert expected messages for run start, iteration start, component failures, run completion
     - _Requirements: 9.1, 9.2, 9.3, 9.4_
 
-- [ ] 10. Final checkpoint - Ensure all tests pass
+- [x] 10. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
 ## Notes
