@@ -10,10 +10,10 @@ from generator_react_agent.config import KNOWN_TOOL_NAMES
 from generator_react_agent.prompt_templates import retrieve_templates, search_examples
 from generator_react_agent.registry import build_tool_registry
 from generator_react_agent.tools import (
-    _run_async_in_thread,
     make_analyze_task,
     make_refine_candidate,
 )
+from shared.async_utils import run_async_in_sync
 
 
 class TestStaticTools:
@@ -69,19 +69,19 @@ class TestLLMBackedTools:
         assert tool("draft") == "No refinement produced."
 
 
-class TestRunAsyncInThread:
+class TestRunAsyncInSync:
     def test_runs_coroutine(self):
         async def coro():
             return 42
 
-        assert _run_async_in_thread(coro()) == 42
+        assert run_async_in_sync(coro()) == 42
 
     def test_propagates_exception(self):
         async def failing():
             raise ValueError("boom")
 
         with pytest.raises(ValueError, match="boom"):
-            _run_async_in_thread(failing())
+            run_async_in_sync(failing())
 
 
 class TestBuildToolRegistry:

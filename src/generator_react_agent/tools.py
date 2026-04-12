@@ -2,34 +2,13 @@
 
 from __future__ import annotations
 
-import asyncio
-import threading
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from llm_toolbox.llm_client import LLMClient
 
-
-def _run_async_in_thread(coro: Any) -> Any:
-    """Run an async coroutine from sync code, even inside a running event loop."""
-    result: Any = None
-    exception: BaseException | None = None
-
-    def _run() -> None:
-        nonlocal result, exception
-        try:
-            result = asyncio.run(coro)
-        except Exception as exc:
-            exception = exc
-
-    thread = threading.Thread(target=_run)
-    thread.start()
-    thread.join()
-
-    if exception is not None:
-        raise exception
-    return result
+from shared.async_utils import run_async_in_sync
 
 
 def make_analyze_task(llm_client: LLMClient) -> Callable[..., str]:
@@ -48,7 +27,7 @@ def make_analyze_task(llm_client: LLMClient) -> Callable[..., str]:
             },
             {"role": "user", "content": task_description},
         ]
-        response = _run_async_in_thread(llm_client.complete(messages=messages))
+        response = run_async_in_sync(llm_client.complete(messages=messages))
         return response.content or "No analysis produced."
 
     return analyze_task
@@ -70,7 +49,7 @@ def make_refine_candidate(llm_client: LLMClient) -> Callable[..., str]:
             },
             {"role": "user", "content": draft},
         ]
-        response = _run_async_in_thread(llm_client.complete(messages=messages))
+        response = run_async_in_sync(llm_client.complete(messages=messages))
         return response.content or "No refinement produced."
 
     return refine_candidate

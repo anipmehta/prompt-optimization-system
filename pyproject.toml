@@ -45,7 +45,7 @@ ignore_missing_imports = true
 where = ["src"]
 
 [tool.coverage.run]
-source = ["src/prompt_optimization_orchestrator", "src/generator_react_agent"]
+source = ["src/prompt_optimization_orchestrator", "src/generator_react_agent", "src/evaluator_agent", "src/shared"]
 branch = true
 
 [tool.coverage.report]
