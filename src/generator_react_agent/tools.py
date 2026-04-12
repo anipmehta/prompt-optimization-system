@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import TYPE_CHECKING
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from llm_toolbox.llm_client import LLMClient
@@ -15,12 +16,12 @@ from llm_toolbox.tool_registry import ToolRegistry
 logger = logging.getLogger(__name__)
 
 
-def _run_async_in_thread(coro):
+def _run_async_in_thread(coro: Any) -> Any:
     """Run an async coroutine from sync code, even inside a running event loop."""
-    result = None
-    exception = None
+    result: Any = None
+    exception: BaseException | None = None
 
-    def _run():
+    def _run() -> None:
         nonlocal result, exception
         try:
             result = asyncio.run(coro)
@@ -36,11 +37,11 @@ def _run_async_in_thread(coro):
     return result
 
 
-def _make_analyze_task(llm_client: LLMClient):
+def _make_analyze_task(llm_client: LLMClient) -> Callable[..., str]:
     """Create an analyze_task tool function with the LLMClient bound via closure."""
 
     def analyze_task(task_description: str) -> str:
-        """Break down a task description into domain, intent, constraints, and expected output format."""
+        """Break down a task into domain, intent, constraints, and output format."""
         messages = [
             {
                 "role": "system",
@@ -58,7 +59,7 @@ def _make_analyze_task(llm_client: LLMClient):
     return analyze_task
 
 
-def _make_refine_candidate(llm_client: LLMClient):
+def _make_refine_candidate(llm_client: LLMClient) -> Callable[..., str]:
     """Create a refine_candidate tool function with the LLMClient bound via closure."""
 
     def refine_candidate(draft: str) -> str:
@@ -112,7 +113,7 @@ def build_tool_registry(
     """
     registry = ToolRegistry()
 
-    tool_factories: dict[str, tuple] = {
+    tool_factories: dict[str, tuple[str, str, dict[str, Any], Callable[..., str]]] = {
         "analyze_task": (
             "analyze_task",
             "Break down a task description into domain, intent, constraints, and output format.",

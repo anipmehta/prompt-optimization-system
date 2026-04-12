@@ -2,12 +2,14 @@
 
 from dataclasses import dataclass
 
-KNOWN_TOOL_NAMES: frozenset[str] = frozenset({
-    "analyze_task",
-    "retrieve_templates",
-    "search_examples",
-    "refine_candidate",
-})
+KNOWN_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        "analyze_task",
+        "retrieve_templates",
+        "search_examples",
+        "refine_candidate",
+    }
+)
 
 DEFAULT_SYSTEM_PROMPT = """\
 You are a prompt engineering expert. Your task is to generate exactly \
@@ -39,14 +41,11 @@ class AgentConfig:
 
     def __post_init__(self) -> None:
         if self.max_iterations < 1:
-            raise ValueError(
-                f"max_iterations must be >= 1, got {self.max_iterations}"
-            )
+            raise ValueError(f"max_iterations must be >= 1, got {self.max_iterations}")
         unknown = self.enabled_tools - KNOWN_TOOL_NAMES
         if unknown:
             raise ValueError(
-                f"Unknown tool names: {sorted(unknown)}. "
-                f"Known tools: {sorted(KNOWN_TOOL_NAMES)}"
+                f"Unknown tool names: {sorted(unknown)}. Known tools: {sorted(KNOWN_TOOL_NAMES)}"
             )
         if not self.system_prompt_template.strip():
             raise ValueError("system_prompt_template must not be empty")

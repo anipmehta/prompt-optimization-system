@@ -37,6 +37,10 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 
+[[tool.mypy.overrides]]
+module = "llm_toolbox.*"
+ignore_missing_imports = true
+
 [tool.setuptools.packages.find]
 where = ["src"]
 

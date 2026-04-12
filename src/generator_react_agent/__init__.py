@@ -15,12 +15,17 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+from typing import Any
+
+
+def __getattr__(name: str) -> Any:
     """Lazy imports for modules that depend on llm-toolbox."""
     if name == "GeneratorAgent":
         from generator_react_agent.agent import GeneratorAgent
+
         return GeneratorAgent
     if name == "build_tool_registry":
         from generator_react_agent.tools import build_tool_registry
+
         return build_tool_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
