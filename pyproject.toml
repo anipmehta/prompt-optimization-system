@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Coordination layer for prompt optimization using RL-based selection"
 requires-python = ">=3.11"
 dependencies = [
-    "llm-toolbox",
+    "llm-toolbox @ git+https://github.com/anipmehta/llm-toolbox.git@main",
 ]
 
 [project.optional-dependencies]
