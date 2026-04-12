@@ -15,13 +15,12 @@ from generator_react_agent.config import (
     AgentConfig,
 )
 from generator_react_agent.parser import parse_candidates
+from generator_react_agent.prompt_templates import retrieve_templates, search_examples
+from generator_react_agent.registry import build_tool_registry
 from generator_react_agent.tools import (
-    _make_analyze_task,
-    _make_refine_candidate,
     _run_async_in_thread,
-    build_tool_registry,
-    retrieve_templates,
-    search_examples,
+    make_analyze_task,
+    make_refine_candidate,
 )
 
 # ── Config tests ──────────────────────────────────────────────────────
@@ -163,7 +162,7 @@ class TestLLMBackedTools:
 
     def test_analyze_task_calls_llm(self):
         client = self._mock_llm_client("Domain: coding")
-        tool = _make_analyze_task(client)
+        tool = make_analyze_task(client)
         result = tool("Write a sort function")
         assert result == "Domain: coding"
         client.complete.assert_called_once()
@@ -173,13 +172,13 @@ class TestLLMBackedTools:
         response = MagicMock()
         response.content = ""
         client.complete = AsyncMock(return_value=response)
-        tool = _make_analyze_task(client)
+        tool = make_analyze_task(client)
         result = tool("some task")
         assert result == "No analysis produced."
 
     def test_refine_candidate_calls_llm(self):
         client = self._mock_llm_client("Improved prompt")
-        tool = _make_refine_candidate(client)
+        tool = make_refine_candidate(client)
         result = tool("draft prompt")
         assert result == "Improved prompt"
         client.complete.assert_called_once()
@@ -189,7 +188,7 @@ class TestLLMBackedTools:
         response = MagicMock()
         response.content = ""
         client.complete = AsyncMock(return_value=response)
-        tool = _make_refine_candidate(client)
+        tool = make_refine_candidate(client)
         result = tool("draft")
         assert result == "No refinement produced."
 
