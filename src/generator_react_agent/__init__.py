@@ -25,7 +25,7 @@ def __getattr__(name: str) -> Any:
 
         return GeneratorAgent
     if name == "build_tool_registry":
-        from generator_react_agent.tools import build_tool_registry
+        from generator_react_agent.registry import build_tool_registry
 
         return build_tool_registry
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
