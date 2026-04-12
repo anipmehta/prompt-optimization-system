@@ -28,7 +28,7 @@ DEFAULT_SCORE = 0.9
 RETRY_SCORE = 0.85
 SAMPLE_CANDIDATES = ["prompt_a", "prompt_b", "prompt_c"]
 
-# --- Shared fakes ---
+# --- Test-specific fakes ---
 
 
 class FakeGenerator:
@@ -39,6 +39,9 @@ class FakeGenerator:
         if self._candidates is not None:
             return self._candidates
         return [f"candidate_{i}" for i in range(num_candidates)]
+
+
+# --- Test-specific fakes (not shared) ---
 
 
 class FailThenSucceedGenerator:
@@ -71,6 +74,11 @@ class FakeSelector:
         pass
 
 
+class FakeEvaluator:
+    def evaluate(self, candidate: str, task_description: str) -> float:
+        return DEFAULT_SCORE
+
+
 class BadCandidateSelector:
     def select(self, candidates: list[str]) -> str:
         return "not_in_set"
@@ -100,11 +108,6 @@ class AlwaysFailSelector:
 
     def reward(self, score: float) -> None:
         pass
-
-
-class FakeEvaluator:
-    def evaluate(self, candidate: str, task_description: str) -> float:
-        return DEFAULT_SCORE
 
 
 class NaNEvaluator:

@@ -38,14 +38,14 @@ warn_return_any = true
 warn_unused_configs = true
 
 [[tool.mypy.overrides]]
-module = "llm_toolbox.*"
+module = ["llm_toolbox.*", "src.*"]
 ignore_missing_imports = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.coverage.run]
-source = ["src/prompt_optimization_orchestrator", "src/generator_react_agent"]
+source = ["src/prompt_optimization_orchestrator", "src/generator_react_agent", "src/evaluator_agent", "src/selector_adapter", "src/shared"]
 branch = true
 
 [tool.coverage.report]

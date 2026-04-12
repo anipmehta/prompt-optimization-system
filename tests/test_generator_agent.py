@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from generator_react_agent.agent import GeneratorAgent
 from generator_react_agent.config import AgentConfig
+
+ASYNC_PATCH = "generator_react_agent.agent.run_async_in_sync"
 
 
 @dataclass
@@ -70,45 +72,40 @@ class TestGeneratorAgentValidation:
 
 
 class TestGeneratorAgentGenerate:
-    def _make_agent_with_mock_run(self, agent_result: FakeAgentResult) -> GeneratorAgent:
+    def _run_with_result(self, agent_result, task="test task", n=3):
         client = MagicMock()
-        client._config = MagicMock()
-        client._config.default_provider = "openai"
         agent = GeneratorAgent(
             llm_client=client,
             config=AgentConfig(max_iterations=1, enabled_tools=frozenset()),
         )
-        agent._run_async = MagicMock(return_value=agent_result)
-        return agent
+        with patch(ASYNC_PATCH, return_value=agent_result):
+            return agent.generate(task, n)
 
     def test_happy_path_returns_candidates(self):
         result = FakeAgentResult(answer="1. Prompt A\n2. Prompt B\n3. Prompt C")
-        candidates = self._make_agent_with_mock_run(result).generate("test task", 3)
-        assert candidates == ["Prompt A", "Prompt B", "Prompt C"]
+        assert self._run_with_result(result) == ["Prompt A", "Prompt B", "Prompt C"]
 
     def test_deduplicates_candidates(self):
         result = FakeAgentResult(answer='["A", "A", "B", "C"]')
-        candidates = self._make_agent_with_mock_run(result).generate("test task", 3)
-        assert candidates == ["A", "B", "C"]
+        assert self._run_with_result(result) == ["A", "B", "C"]
 
     def test_truncates_extra_candidates(self):
         result = FakeAgentResult(answer='["A", "B", "C", "D", "E"]')
-        assert len(self._make_agent_with_mock_run(result).generate("test task", 3)) == 3
+        assert len(self._run_with_result(result)) == 3
 
     def test_timeout_with_no_answer_raises(self):
         result = FakeAgentResult(answer=None, timed_out=True, iterations=5)
         with pytest.raises(TimeoutError, match="timed out"):
-            self._make_agent_with_mock_run(result).generate("test task", 3)
+            self._run_with_result(result)
 
     def test_timeout_with_answer_parses(self):
         result = FakeAgentResult(answer="1. Partial A\n2. Partial B", timed_out=True)
-        candidates = self._make_agent_with_mock_run(result).generate("test task", 2)
-        assert candidates == ["Partial A", "Partial B"]
+        assert self._run_with_result(result, n=2) == ["Partial A", "Partial B"]
 
     def test_empty_answer_raises_runtime_error(self):
         result = FakeAgentResult(answer="")
         with pytest.raises(RuntimeError, match="empty answer"):
-            self._make_agent_with_mock_run(result).generate("test task", 3)
+            self._run_with_result(result)
 
     def test_agent_exception_wrapped_in_runtime_error(self):
         client = MagicMock()
@@ -116,15 +113,14 @@ class TestGeneratorAgentGenerate:
             llm_client=client,
             config=AgentConfig(max_iterations=1, enabled_tools=frozenset()),
         )
-        agent._run_async = MagicMock(side_effect=ConnectionError("network down"))
-        with pytest.raises(RuntimeError, match="Generator agent failed") as exc_info:
-            agent.generate("test task", 3)
+        with patch(ASYNC_PATCH, side_effect=ConnectionError("network down")):
+            with pytest.raises(RuntimeError, match="Generator agent failed") as exc_info:
+                agent.generate("test task", 3)
         assert isinstance(exc_info.value.__cause__, ConnectionError)
 
     def test_strips_whitespace_from_candidates(self):
         result = FakeAgentResult(answer='["  padded  ", " also padded "]')
-        candidates = self._make_agent_with_mock_run(result).generate("test task", 2)
-        assert candidates == ["padded", "also padded"]
+        assert self._run_with_result(result, n=2) == ["padded", "also padded"]
 
     def test_follow_up_on_insufficient_candidates(self):
         client = MagicMock()
@@ -134,8 +130,8 @@ class TestGeneratorAgentGenerate:
         )
         first = FakeAgentResult(answer='["Only one"]')
         second = FakeAgentResult(answer='["Second", "Third"]')
-        agent._run_async = MagicMock(side_effect=[first, second])
-        candidates = agent.generate("test task", 3)
+        with patch(ASYNC_PATCH, side_effect=[first, second]):
+            candidates = agent.generate("test task", 3)
         assert len(candidates) == 3
         assert "Only one" in candidates
 
@@ -146,10 +142,8 @@ class TestGeneratorAgentGenerate:
             config=AgentConfig(max_iterations=1, enabled_tools=frozenset()),
         )
         first = FakeAgentResult(answer='["Only one"]')
-        agent._run_async = MagicMock(
-            side_effect=[first, RuntimeError("follow-up failed")],
-        )
-        candidates = agent.generate("test task", 3)
+        with patch(ASYNC_PATCH, side_effect=[first, RuntimeError("fail")]):
+            candidates = agent.generate("test task", 3)
         assert candidates == ["Only one"]
 
 
@@ -164,5 +158,4 @@ class TestDeduplicate:
         assert GeneratorAgent._deduplicate(["a", "", "  ", "b"]) == ["a", "b"]
 
     def test_exclude_set(self):
-        result = GeneratorAgent._deduplicate(["a", "b", "c"], exclude={"a"})
-        assert result == ["b", "c"]
+        assert GeneratorAgent._deduplicate(["a", "b", "c"], exclude={"a"}) == ["b", "c"]

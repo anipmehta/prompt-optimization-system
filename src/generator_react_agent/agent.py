@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -15,6 +13,7 @@ from llm_toolbox.agent import Agent as LLMToolboxAgent
 from generator_react_agent.config import AgentConfig
 from generator_react_agent.parser import parse_candidates
 from generator_react_agent.registry import build_tool_registry
+from shared.async_utils import run_async_in_sync
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +119,7 @@ class GeneratorAgent:
     def _run_agent(self, agent: LLMToolboxAgent, task: str) -> Any:
         """Run the agent and validate the result."""
         try:
-            result = self._run_async(agent.run(task))
+            result = run_async_in_sync(agent.run(task))
         except Exception as exc:
             self._log.error("agent.run() failed: %s", exc)
             raise RuntimeError(f"Generator agent failed: {exc}") from exc
@@ -154,29 +153,3 @@ class GeneratorAgent:
                 seen.add(stripped)
                 unique.append(stripped)
         return unique
-
-    @staticmethod
-    def _run_async(coro: Any) -> Any:
-        """Bridge async coroutine to sync, handling already-running loops."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-
-        result: Any = None
-        exception: BaseException | None = None
-
-        def _run() -> None:
-            nonlocal result, exception
-            try:
-                result = asyncio.run(coro)
-            except Exception as exc:
-                exception = exc
-
-        thread = threading.Thread(target=_run)
-        thread.start()
-        thread.join()
-
-        if exception is not None:
-            raise exception
-        return result
