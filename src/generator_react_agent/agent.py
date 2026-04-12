@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from llm_toolbox.llm_client import LLMClient
@@ -45,9 +45,7 @@ class GeneratorAgent:
         if not task_description or not task_description.strip():
             raise ValueError("task_description must be a non-empty string.")
         if num_candidates < 1:
-            raise ValueError(
-                f"num_candidates must be >= 1, got {num_candidates}"
-            )
+            raise ValueError(f"num_candidates must be >= 1, got {num_candidates}")
 
         self._log.info(
             "generate() called: task_len=%d, num_candidates=%d",
@@ -56,9 +54,7 @@ class GeneratorAgent:
         )
 
         # --- Build system prompt ---
-        system_prompt = self._config.system_prompt_template.format(
-            num_candidates=num_candidates
-        )
+        system_prompt = self._config.system_prompt_template.format(num_candidates=num_candidates)
 
         # --- Build tool registry ---
         tool_registry = build_tool_registry(
@@ -80,9 +76,7 @@ class GeneratorAgent:
             result = self._run_async(agent.run(task_description))
         except Exception as exc:
             self._log.error("agent.run() failed: %s", exc)
-            raise RuntimeError(
-                f"Generator agent failed: {exc}"
-            ) from exc
+            raise RuntimeError(f"Generator agent failed: {exc}") from exc
 
         self._log.info(
             "Agent completed: iterations=%d, timed_out=%s",
@@ -93,8 +87,7 @@ class GeneratorAgent:
         # --- Handle timeout ---
         if result.timed_out and not result.answer:
             raise TimeoutError(
-                f"Generator agent timed out after {result.iterations} iterations "
-                "with no answer."
+                f"Generator agent timed out after {result.iterations} iterations with no answer."
             )
 
         if not result.answer or not result.answer.strip():
@@ -118,8 +111,7 @@ class GeneratorAgent:
 
         if len(unique) < num_candidates:
             self._log.warning(
-                "Parsed %d unique candidates but need %d. "
-                "Attempting follow-up generation.",
+                "Parsed %d unique candidates but need %d. Attempting follow-up generation.",
                 len(unique),
                 num_candidates,
             )
@@ -153,7 +145,7 @@ class GeneratorAgent:
         return unique[:num_candidates]
 
     @staticmethod
-    def _run_async(coro):
+    def _run_async(coro: Any) -> Any:
         """Bridge async coroutine to sync, handling already-running event loops."""
         try:
             asyncio.get_running_loop()
@@ -162,10 +154,10 @@ class GeneratorAgent:
             return asyncio.run(coro)
 
         # Running loop detected — execute in a new thread
-        result = None
-        exception = None
+        result: Any = None
+        exception: BaseException | None = None
 
-        def _run():
+        def _run() -> None:
             nonlocal result, exception
             try:
                 result = asyncio.run(coro)
