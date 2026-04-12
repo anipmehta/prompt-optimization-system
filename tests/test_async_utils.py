@@ -6,13 +6,15 @@ import pytest
 
 from shared.async_utils import run_async_in_sync
 
+EXPECTED_RESULT = 42
+
 
 class TestRunAsyncInSync:
     def test_runs_simple_coroutine(self):
         async def coro():
-            return 42
+            return EXPECTED_RESULT
 
-        assert run_async_in_sync(coro()) == 42
+        assert run_async_in_sync(coro()) == EXPECTED_RESULT
 
     def test_propagates_exception(self):
         async def failing():
